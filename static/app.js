@@ -1,10 +1,10 @@
-const ABS_MIN_SPEECH_START_DB = -78;
-const ABS_MIN_SPEECH_CONTINUE_DB = -82;
-const SPEECH_MARGIN_START_DB = 2.5;
-const SPEECH_MARGIN_CONTINUE_DB = 1.2;
-const SPEECH_OVERRIDE_DB = -58;
-const SPEECH_RISE_DB = 2;
-const SPEECH_ACCEPT_MS = 160;
+const ABS_MIN_SPEECH_START_DB = -85;
+const ABS_MIN_SPEECH_CONTINUE_DB = -88;
+const SPEECH_MARGIN_START_DB = 2.0;
+const SPEECH_MARGIN_CONTINUE_DB = 1.0;
+const SPEECH_OVERRIDE_DB = -65;
+const SPEECH_RISE_DB = 1.5;
+const SPEECH_ACCEPT_MS = 120;
 const NOISE_FLOOR_ALPHA = 0.03;
 const NOISE_FLOOR_WAITING_ALPHA = 0.08;
 const NOISE_FLOOR_MAX_RISE_DB = 2.5;
@@ -15,6 +15,8 @@ const MIN_RECORDING_MS = 800;
 const AUTO_SEND_MIN_RECORDING_MS = 2000;
 const STARTUP_GRACE_MS = 500;
 const MIN_SPEECH_SPAN_MS = 1200;
+const MAX_WAIT_FOR_SPEECH_MS = 15000;
+const FORCE_SEND_MS = 35000;
 const MAX_RECORDING_MS = 60000;
 const BARGE_IN_THRESHOLD_DB = -32;
 const BARGE_IN_RISE_DB = 9;
@@ -834,6 +836,12 @@ function monitorSilence() {
   const frameDelta = lastFrameAt ? Math.min(200, now - lastFrameAt) : 0;
   lastFrameAt = now;
 
+  if (elapsed >= FORCE_SEND_MS) {
+    ui.recordingState.textContent = "Sending answer...";
+    stopRecording("auto");
+    return;
+  }
+
   if (!hasVoiceActivity) {
     if (db <= noiseFloorDb + NOISE_FLOOR_MAX_RISE_DB) {
       noiseFloorDb = noiseFloorDb * (1 - NOISE_FLOOR_WAITING_ALPHA) + db * NOISE_FLOOR_WAITING_ALPHA;
@@ -884,6 +892,10 @@ function monitorSilence() {
   }
 
   if (!hasVoiceActivity) {
+    if (elapsed >= MAX_WAIT_FOR_SPEECH_MS) {
+      ui.recordingState.textContent =
+        "Still listening... speak a bit louder or check microphone access.";
+    }
     if (speechAccepted) {
       vadPhase = "speaking";
       ui.recordingState.textContent = "Listening... I will send automatically when you finish.";
@@ -1047,6 +1059,9 @@ function startRecording() {
     ui.submitAnswerBtn.disabled = !ui.fallbackInput.value.trim();
     return;
   }
+  mediaRecorder.onstart = () => {
+    ui.recordingState.textContent = "Listening... start speaking when ready.";
+  };
   mediaRecorder.ondataavailable = (event) => {
     if (currentSession !== recorderSessionId) {
       return;
