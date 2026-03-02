@@ -18,6 +18,7 @@ const MIN_SPEECH_SPAN_MS = 1200;
 const MAX_WAIT_FOR_SPEECH_MS = 15000;
 const FORCE_SEND_MS = 35000;
 const MAX_RECORDING_MS = 60000;
+const HISTORY_LIMIT = 16;
 const BARGE_IN_THRESHOLD_DB = -32;
 const BARGE_IN_RISE_DB = 9;
 const BARGE_IN_HOLD_MS = 280;
@@ -739,6 +740,23 @@ function nowTimestamp() {
 
 function pushTurn(role, content) {
   state.history.push({ role, content, timestamp: nowTimestamp() });
+}
+
+function looksLikeSpeech(text) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) {
+    return false;
+  }
+  const letters = (trimmed.match(/[A-Za-z]/g) || []).length;
+  const digits = (trimmed.match(/[0-9]/g) || []).length;
+  const words = trimmed.split(/\s+/).length;
+  if (letters < 3) {
+    return false;
+  }
+  if (digits > letters * 2) {
+    return false;
+  }
+  return words >= 2 || letters >= 6;
 }
 
 function showScreen(target) {
@@ -1581,11 +1599,12 @@ function startRecording() {
       }
       const payload = await response.json();
       state.pendingStudentText = (payload.text || "").trim();
-      if (state.pendingStudentText.length > 0) {
+      if (state.pendingStudentText.length > 0 && looksLikeSpeech(state.pendingStudentText)) {
         ui.recordingState.textContent = "Response captured. Sending...";
         await handleStudentSubmit(state.pendingStudentText);
       } else {
-        ui.recordingState.textContent = "Could not detect speech. Listening again...";
+        ui.recordingState.textContent =
+          "Could not detect a clear response. Please answer again.";
         if (state.phase === "interview" && !state.processing && state.mediaSupported) {
           startRecording();
         }
@@ -1733,7 +1752,7 @@ async function startClosing() {
 }
 
 async function runChat(studentText) {
-  const historyBeforeAnswer = [...state.history];
+  const historyBeforeAnswer = state.history.slice(-HISTORY_LIMIT);
   pushTurn("user", studentText);
 
   const phase = state.inClosing
@@ -1953,6 +1972,13 @@ async function handleStudentSubmit(textOverride = null) {
   ).trim();
   if (!text) {
     setStatus("Please provide an answer before submitting.");
+    return;
+  }
+  if (!looksLikeSpeech(text)) {
+    setStatus("Please provide a clear spoken answer.");
+    if (state.phase === "interview" && state.mediaSupported && !state.processing) {
+      startRecording();
+    }
     return;
   }
 
