@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -26,6 +26,8 @@ MAX_AUDIO_BYTES = 10 * 1024 * 1024
 DEFAULT_CHAT_MODEL = os.getenv("MODEL_CHAT", "gpt-4o")
 DEFAULT_EVAL_MODEL = os.getenv("MODEL_EVAL", "gpt-4o")
 DEFAULT_WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-1")
+ACCESS_PIN = os.getenv("ACCESS_PIN", "").strip()
+ACCESS_PIN_TTL_HOURS = int(os.getenv("ACCESS_PIN_TTL_HOURS", "168"))
 
 PROBE_PHRASES = (
     "tell me more",
@@ -141,6 +143,14 @@ class EvaluateResponse(BaseModel):
 
 class QuestionResponse(BaseModel):
     questions: list[str]
+
+
+class PinRequest(BaseModel):
+    pin: str = Field(min_length=1, max_length=32)
+
+
+class PinStatus(BaseModel):
+    required: bool
 
 
 def _load_text(path: Path) -> str:
@@ -304,6 +314,10 @@ def null_scores() -> ScorePayload:
     return ScorePayload()
 
 
+def pin_required() -> bool:
+    return bool(ACCESS_PIN)
+
+
 def grade_from_total(total: int) -> tuple[str, str]:
     if total >= 17:
         return ("A", "B2+")
@@ -419,7 +433,21 @@ def create_app() -> FastAPI:
     )
 
     @app.middleware("http")
-    async def no_cache_headers(request, call_next):  # type: ignore[no-untyped-def]
+    async def no_cache_headers(request: Request, call_next):  # type: ignore[no-untyped-def]
+        if pin_required():
+            allowed = {"/", "/health", "/auth", "/auth/status"}
+            if request.url.path.startswith("/static"):
+                allowed.add(request.url.path)
+            if request.method != "OPTIONS" and request.url.path not in allowed:
+                if request.cookies.get("nt_pin") != "ok":
+                    raise HTTPException(
+                        status_code=401,
+                        detail={
+                            "code": "PIN_REQUIRED",
+                            "message": "PIN required to access this application.",
+                            "retryable": False,
+                        },
+                    )
         response = await call_next(request)
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
@@ -448,6 +476,34 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/auth/status", response_model=PinStatus)
+    async def auth_status() -> PinStatus:
+        return PinStatus(required=pin_required())
+
+    @app.post("/auth")
+    async def auth_pin(payload: PinRequest) -> Response:
+        if not pin_required():
+            return Response(status_code=204)
+        if payload.pin.strip() != ACCESS_PIN:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "PIN_INVALID",
+                    "message": "Incorrect PIN.",
+                    "retryable": False,
+                },
+            )
+        max_age = max(1, ACCESS_PIN_TTL_HOURS) * 3600
+        response = Response(status_code=204)
+        response.set_cookie(
+            "nt_pin",
+            "ok",
+            max_age=max_age,
+            httponly=True,
+            samesite="lax",
+        )
+        return response
 
     @app.get("/questions", response_model=QuestionResponse)
     async def get_questions() -> QuestionResponse:

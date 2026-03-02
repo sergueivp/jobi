@@ -11,7 +11,7 @@
       rel="stylesheet"
     />
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/static/styles.css?v=20260302w" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260302x" />
   </head>
   <body>
     <main class="app-shell" aria-live="polite">
@@ -42,6 +42,15 @@
             <div class="form-group">
               <label for="role-name">Role Applied For</label>
               <input id="role-name" name="role-name" type="text" maxlength="160" placeholder="e.g. Junior Software Developer" required />
+            </div>
+
+            <div id="pin-block" class="form-group hidden">
+              <label for="pin-code">Access PIN</label>
+              <div class="pin-row">
+                <input id="pin-code" name="pin-code" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="12" autocomplete="one-time-code" />
+                <button id="pin-btn" type="button" class="btn-secondary">Unlock</button>
+              </div>
+              <div id="pin-status" class="pin-status"></div>
             </div>
 
             <div class="warning-box">
@@ -141,6 +150,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=20260302w" defer></script>
+    <script src="/static/app.js?v=20260302x" defer></script>
   </body>
 </html>

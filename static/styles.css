@@ -177,6 +177,37 @@ label {
   line-height: 1.55;
 }
 
+.pin-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.pin-row input {
+  flex: 1;
+}
+
+.btn-secondary {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 11px 14px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-secondary:hover:enabled {
+  background: #f5efe6;
+}
+
+.pin-status {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #7a5520;
+}
+
 .btn-primary {
   width: 100%;
   border: 0;
