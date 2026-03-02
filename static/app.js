@@ -171,6 +171,7 @@ let bargeNoiseFloorDb = -65;
 let bargeSmoothedDb = -100;
 let chunks = [];
 let speaking = false;
+let responsePending = false;
 let speechToken = 0;
 let pendingStopAction = "auto"; // auto | send | restart
 
@@ -1037,10 +1038,12 @@ async function speak(text) {
   }
 
   speaking = false;
+  responsePending = true;
   ui.turnIndicator.textContent = "Turn: Alex responding";
   setVisualState("thinking");
   lastAlexUtterance = clean;
   if (!allowSpeech()) {
+    responsePending = false;
     return;
   }
 
@@ -1050,6 +1053,7 @@ async function speak(text) {
     if (!allowSpeech()) {
       return;
     }
+    responsePending = false;
     speaking = true;
     ui.turnIndicator.textContent = "Turn: Alex speaking";
     setVisualState("speaking");
@@ -1090,11 +1094,17 @@ async function speak(text) {
   }
 
   if (!spokenOk) {
+    if (localToken === speechToken) {
+      responsePending = false;
+    }
     setStatus("Audio output failed. Click Replay to hear Alex.");
     setAudioFallback(clean, true);
   }
 
   speaking = false;
+  if (localToken === speechToken) {
+    responsePending = false;
+  }
   if (!allowSpeech()) {
     return;
   }
@@ -1220,7 +1230,8 @@ function canAutoListen() {
     state.phase === "interview" &&
     state.mediaSupported &&
     !state.processing &&
-    !speaking
+    !speaking &&
+    !responsePending
   );
 }
 
@@ -1653,7 +1664,7 @@ function startInteractionGuard() {
     if (state.processing || state.recording) {
       return;
     }
-    if (speaking) {
+    if (speaking || responsePending) {
       return;
     }
     setStudentTurnEnabled(true);
@@ -1754,6 +1765,7 @@ async function finishInterview(reason = "completed") {
 
   state.phase = "report";
   speechToken += 1;
+  responsePending = false;
   state.endedAt = Date.now();
   stopTimer();
   stopRecording("cancel");
