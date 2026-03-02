@@ -253,6 +253,12 @@ label {
   color: #6b5b4a;
 }
 
+.ai-voice-note {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #8a7b68;
+}
+
 .mic-playback {
   margin-top: 10px;
   width: 100%;

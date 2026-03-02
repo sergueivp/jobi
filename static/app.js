@@ -55,6 +55,7 @@ const state = {
   pinRequired: false,
   pinUnlocked: false,
   pinToken: "",
+  serverTtsAvailable: false,
   questionIndex: 0,
   history: [],
   probeUsedCurrentQuestion: false,
@@ -159,6 +160,8 @@ let micTestChunks = [];
 let micTestPlaybackUrl = "";
 let micTestStartedAt = 0;
 let micTestLastSpeechAt = 0;
+let serverTtsAudio = null;
+let serverTtsUrl = "";
 let bargeInRaf = null;
 let bargeStartAt = 0;
 let bargeFrameAt = 0;
@@ -306,6 +309,7 @@ function startBargeInMonitor() {
       if (window.speechSynthesis?.speaking) {
         window.speechSynthesis.cancel();
       }
+      stopServerTtsPlayback();
       speaking = false;
       setVisualState("listening");
       stopBargeInMonitor();
@@ -341,6 +345,17 @@ function authHeaders(extra = {}) {
     headers["X-Access-Pin"] = state.pinToken;
   }
   return headers;
+}
+
+function stopServerTtsPlayback() {
+  if (serverTtsAudio) {
+    serverTtsAudio.pause();
+    serverTtsAudio.currentTime = 0;
+  }
+  if (serverTtsUrl) {
+    URL.revokeObjectURL(serverTtsUrl);
+    serverTtsUrl = "";
+  }
 }
 
 function showMicTest(available) {
@@ -561,6 +576,48 @@ async function recordMicSample() {
   }, 3000);
 }
 
+async function playServerTts(text) {
+  if (!state.serverTtsAvailable) {
+    return false;
+  }
+  try {
+    const response = await fetch("/tts", {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ text }),
+    });
+    if (!response.ok) {
+      if (response.status === 401) {
+        handlePinRequired();
+        return false;
+      }
+      return false;
+    }
+    const blob = await response.blob();
+    stopServerTtsPlayback();
+    serverTtsUrl = URL.createObjectURL(blob);
+    if (!serverTtsAudio) {
+      serverTtsAudio = new Audio();
+    }
+    serverTtsAudio.src = serverTtsUrl;
+    serverTtsAudio.preload = "auto";
+    return await new Promise((resolve) => {
+      const cleanup = (ok) => {
+        stopServerTtsPlayback();
+        resolve(ok);
+      };
+      serverTtsAudio.onended = () => cleanup(true);
+      serverTtsAudio.onerror = () => cleanup(false);
+      const playPromise = serverTtsAudio.play();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => cleanup(false));
+      }
+    });
+  } catch (_error) {
+    return false;
+  }
+}
+
 async function runAudioTest() {
   if (!window.speechSynthesis) {
     setAudioTestStatus("Audio output is not supported in this browser.");
@@ -588,11 +645,20 @@ async function runAudioTest() {
   if (result.ok) {
     setAudioTestStatus("Audio check passed.", true);
   } else {
-    const beepOk = await playBeep();
-    if (beepOk) {
-      setAudioTestStatus("Beep played. Speech voice is blocked or unavailable.");
+    if (state.serverTtsAvailable) {
+      const serverOk = await playServerTts(sample);
+      if (serverOk) {
+        setAudioTestStatus("Server voice check passed.", true);
+      } else {
+        setAudioTestStatus("Server voice failed. Check network or API key.");
+      }
     } else {
-      setAudioTestStatus("No audio heard. Check system volume or browser permissions.");
+      const beepOk = await playBeep();
+      if (beepOk) {
+        setAudioTestStatus("Beep played. Speech voice is blocked or unavailable.");
+      } else {
+        setAudioTestStatus("No audio heard. Check system volume or browser permissions.");
+      }
     }
   }
   if (ui.audioTestBtn) {
@@ -642,6 +708,7 @@ async function tryUnlockPin(pin) {
     }
     state.pinUnlocked = true;
     state.pinToken = pin;
+    await fetchTtsStatus();
     setPinStatus("Unlocked.", true);
     showPinBlock(false);
     return true;
@@ -734,6 +801,19 @@ async function fetchQuestions() {
   }
   state.questions = payload.questions;
   renderDots();
+}
+
+async function fetchTtsStatus() {
+  try {
+    const response = await fetch("/tts/status", { headers: authHeaders() });
+    if (!response.ok) {
+      return;
+    }
+    const payload = await response.json();
+    state.serverTtsAvailable = Boolean(payload?.enabled);
+  } catch (_error) {
+    // Non-fatal.
+  }
 }
 
 async function fetchPinStatus() {
@@ -924,6 +1004,18 @@ async function speak(text) {
   setAudioFallback("", false);
 
   if (!clean || !window.speechSynthesis) {
+    if (clean && state.serverTtsAvailable) {
+      speaking = true;
+      ui.turnIndicator.textContent = "Turn: Alex speaking";
+      setVisualState("speaking");
+      lastAlexUtterance = clean;
+      const ok = await playServerTts(clean);
+      speaking = false;
+      if (!ok) {
+        setStatus("Audio output failed. Enable sound or use Chrome.");
+        setAudioFallback(clean, true);
+      }
+    }
     return;
   }
 
@@ -932,6 +1024,7 @@ async function speak(text) {
   }
 
   haltRecordingForSpeech();
+  stopServerTtsPlayback();
   speaking = true;
   ui.turnIndicator.textContent = "Turn: Alex speaking";
   setVisualState("speaking");
@@ -964,8 +1057,18 @@ async function speak(text) {
   }
 
   if (!spokenOk) {
-    setStatus("Audio output failed. Click Replay to hear Alex.");
-    setAudioFallback(clean, true);
+    if (state.serverTtsAvailable) {
+      const serverOk = await playServerTts(clean);
+      if (!serverOk) {
+        setStatus("Audio output failed. Click Replay to hear Alex.");
+        setAudioFallback(clean, true);
+      } else {
+        spokenOk = true;
+      }
+    } else {
+      setStatus("Audio output failed. Click Replay to hear Alex.");
+      setAudioFallback(clean, true);
+    }
   }
 
   speaking = false;
@@ -1896,6 +1999,7 @@ async function beginInterview() {
   if (state.questions.length !== 7) {
     try {
       await fetchQuestions();
+      await fetchTtsStatus();
     } catch (error) {
       if (error.message !== "PIN required") {
         setStatus(`Unable to load questions: ${error.message}`);
@@ -2063,6 +2167,7 @@ async function initialize() {
 
   try {
     await fetchPinStatus();
+    await fetchTtsStatus();
     if (!state.pinRequired || state.pinUnlocked) {
       await fetchQuestions();
       setStatus("Questions loaded. Enter your details to begin.");

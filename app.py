@@ -28,6 +28,9 @@ DEFAULT_EVAL_MODEL = os.getenv("MODEL_EVAL", "gpt-4o")
 DEFAULT_WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-1")
 ACCESS_PIN = os.getenv("ACCESS_PIN", "").strip()
 ACCESS_PIN_TTL_HOURS = int(os.getenv("ACCESS_PIN_TTL_HOURS", "168"))
+SERVER_TTS_ENABLED = os.getenv("SERVER_TTS_ENABLED", "false").lower() in {"1", "true", "yes"}
+TTS_MODEL = os.getenv("TTS_MODEL", "gpt-4o-mini-tts")
+TTS_VOICE = os.getenv("TTS_VOICE", "alloy")
 
 PROBE_PHRASES = (
     "tell me more",
@@ -151,6 +154,14 @@ class PinRequest(BaseModel):
 
 class PinStatus(BaseModel):
     required: bool
+
+
+class TtsRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class TtsStatus(BaseModel):
+    enabled: bool
 
 
 def _load_text(path: Path) -> str:
@@ -318,6 +329,20 @@ def pin_required() -> bool:
     return bool(ACCESS_PIN)
 
 
+def tts_enabled() -> bool:
+    return SERVER_TTS_ENABLED
+
+
+def read_audio_bytes(result: object) -> bytes:
+    if isinstance(result, (bytes, bytearray)):
+        return bytes(result)
+    if hasattr(result, "read"):
+        return result.read()
+    if hasattr(result, "content"):
+        return result.content
+    return bytes(result)
+
+
 def grade_from_total(total: int) -> tuple[str, str]:
     if total >= 17:
         return ("A", "B2+")
@@ -435,7 +460,7 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def no_cache_headers(request: Request, call_next):  # type: ignore[no-untyped-def]
         if pin_required():
-            allowed = {"/", "/health", "/auth", "/auth/status"}
+            allowed = {"/", "/health", "/auth", "/auth/status", "/tts/status"}
             if request.url.path.startswith("/static"):
                 allowed.add(request.url.path)
             if request.method != "OPTIONS" and request.url.path not in allowed:
@@ -484,6 +509,10 @@ def create_app() -> FastAPI:
     @app.get("/auth/status", response_model=PinStatus)
     async def auth_status() -> PinStatus:
         return PinStatus(required=pin_required())
+
+    @app.get("/tts/status", response_model=TtsStatus)
+    async def tts_status() -> TtsStatus:
+        return TtsStatus(enabled=tts_enabled())
 
     @app.post("/auth")
     async def auth_pin(payload: PinRequest) -> Response:
@@ -587,6 +616,48 @@ def create_app() -> FastAPI:
 
         text = str(transcription).strip()
         return {"text": text, "duration_ms": max(duration_ms, 0)}
+
+    @app.post("/tts")
+    async def text_to_speech(payload: TtsRequest) -> Response:
+        if not tts_enabled():
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "TTS_DISABLED",
+                    "message": "Server-side TTS is disabled.",
+                    "retryable": False,
+                },
+            )
+        client = get_openai_client()
+        try:
+            result = client.audio.speech.create(
+                model=TTS_MODEL,
+                voice=TTS_VOICE,
+                input=payload.text,
+                response_format="mp3",
+                timeout=45,
+            )
+            audio_bytes = read_audio_bytes(result)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "TTS_FAILED",
+                    "message": f"TTS service failed: {exc}",
+                    "retryable": True,
+                },
+            ) from exc
+
+        if not audio_bytes:
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "TTS_EMPTY",
+                    "message": "TTS returned empty audio.",
+                    "retryable": True,
+                },
+            )
+        return Response(content=audio_bytes, media_type="audio/mpeg")
 
     @app.post("/chat", response_model=ChatResponse)
     async def chat_reply(payload: ChatRequest) -> ChatResponse:
