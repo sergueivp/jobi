@@ -1,3 +1,9 @@
+---
+title: NovaTech Interview Simulator
+sdk: docker
+app_port: 7860
+---
+
 # NovaTech Interview Simulator
 ### An AI-Powered Spoken English Assessment Tool for University EFL Students
 

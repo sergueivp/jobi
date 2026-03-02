@@ -8,6 +8,7 @@ All notable changes to this project are documented here.
 - Client-side barge‑in monitor for interrupting TTS when the student starts speaking.
 - Countdown chip and state signalization during VAD silence windows.
 - Memory log (`MEMORY.md`) to record validated good practices.
+- Docker deployment files for Hugging Face Spaces (`Dockerfile`, `.dockerignore`).
 
 ### Changed
 - Client question flow: frontend is the single source of progression; backend replies are pruned to avoid next-question leakage.
