@@ -64,3 +64,9 @@ This file is **for the assistant’s use**. It captures validated solutions and 
 **Decision:** Monitor mic during TTS and cancel when sustained speech detected.
 **Evidence:** Matches real turn‑taking behavior.
 **Reuse rule:** Barge‑in only during prompts, not while processing.
+
+### 2026-03-02 — Mic check before interview
+**Context:** Students report "listening but no transcription" due to permission or low input.
+**Decision:** Add a setup-screen mic check with live meter and a 3s playback sample.
+**Evidence:** Confirms mic permission and volume before starting the interview.
+**Reuse rule:** Keep a visible mic test on audio-first assessments.

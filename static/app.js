@@ -82,6 +82,14 @@ const ui = {
   pinCode: document.getElementById("pin-code"),
   pinBtn: document.getElementById("pin-btn"),
   pinStatus: document.getElementById("pin-status"),
+  micTest: document.getElementById("mic-test"),
+  micTestUnavailable: document.getElementById("mic-test-unavailable"),
+  micTestBtn: document.getElementById("mic-test-btn"),
+  micStopBtn: document.getElementById("mic-stop-btn"),
+  micRecordBtn: document.getElementById("mic-record-btn"),
+  micMeterFill: document.getElementById("mic-meter-fill"),
+  micTestStatus: document.getElementById("mic-test-status"),
+  micPlayback: document.getElementById("mic-playback"),
   turnIndicator: document.getElementById("turn-indicator"),
   statusLight: document.getElementById("status-light"),
   countdownChip: document.getElementById("countdown-chip"),
@@ -140,6 +148,13 @@ let lastFrameAt = 0;
 let speechStreakMs = 0;
 let lastAlexUtterance = "";
 let audioUnlocked = false;
+let micTestActive = false;
+let micTestRaf = null;
+let micTestRecorder = null;
+let micTestChunks = [];
+let micTestPlaybackUrl = "";
+let micTestStartedAt = 0;
+let micTestLastSpeechAt = 0;
 let bargeInRaf = null;
 let bargeStartAt = 0;
 let bargeFrameAt = 0;
@@ -316,6 +331,180 @@ function setStatus(text) {
   ui.statusLine.textContent = text;
 }
 
+function showMicTest(available) {
+  if (ui.micTest) {
+    ui.micTest.classList.toggle("hidden", !available);
+  }
+  if (ui.micTestUnavailable) {
+    ui.micTestUnavailable.classList.toggle("hidden", available);
+  }
+}
+
+function setMicTestStatus(message, ok = false) {
+  if (!ui.micTestStatus) {
+    return;
+  }
+  ui.micTestStatus.textContent = message;
+  ui.micTestStatus.style.color = ok ? "#2f7d32" : "#7a5520";
+}
+
+function updateMicMeter(db) {
+  if (!ui.micMeterFill) {
+    return;
+  }
+  const level = Math.max(0, Math.min(1, (db + 90) / 70));
+  ui.micMeterFill.style.width = `${Math.round(level * 100)}%`;
+}
+
+function stopMicTest() {
+  micTestActive = false;
+  if (micTestRaf) {
+    cancelAnimationFrame(micTestRaf);
+    micTestRaf = null;
+  }
+  if (ui.micTestBtn) {
+    ui.micTestBtn.disabled = false;
+  }
+  if (ui.micStopBtn) {
+    ui.micStopBtn.disabled = true;
+  }
+  if (ui.micRecordBtn) {
+    ui.micRecordBtn.disabled = false;
+  }
+  setMicTestStatus("Microphone is idle.");
+  updateMicMeter(-100);
+}
+
+async function startMicTest() {
+  if (!state.mediaSupported) {
+    setMicTestStatus("Voice mode is not available on this device.");
+    return;
+  }
+  if (micTestActive) {
+    return;
+  }
+  try {
+    await setupMediaStream();
+  } catch (_error) {
+    setMicTestStatus("Microphone permission denied. Voice mode will be disabled.");
+    state.mediaSupported = false;
+    showMicTest(false);
+    return;
+  }
+  if (!analyser) {
+    setMicTestStatus("Microphone is not ready.");
+    return;
+  }
+  micTestActive = true;
+  micTestStartedAt = performance.now();
+  micTestLastSpeechAt = 0;
+  if (ui.micTestBtn) {
+    ui.micTestBtn.disabled = true;
+  }
+  if (ui.micStopBtn) {
+    ui.micStopBtn.disabled = false;
+  }
+  if (ui.micRecordBtn) {
+    ui.micRecordBtn.disabled = false;
+  }
+  setMicTestStatus("Listening... speak now.");
+
+  const frame = new Float32Array(analyser.fftSize);
+  const tick = () => {
+    if (!micTestActive || !analyser) {
+      return;
+    }
+    analyser.getFloatTimeDomainData(frame);
+    let squareSum = 0;
+    for (let index = 0; index < frame.length; index += 1) {
+      squareSum += frame[index] * frame[index];
+    }
+    const rms = Math.sqrt(squareSum / frame.length);
+    const db = rms > 0 ? 20 * Math.log10(rms) : -100;
+    updateMicMeter(db);
+
+    const now = performance.now();
+    const speaking = db > -55;
+    if (speaking) {
+      micTestLastSpeechAt = now;
+      setMicTestStatus("Voice detected.", true);
+    } else if (now - micTestStartedAt > 1200 && now - micTestLastSpeechAt > 1200) {
+      setMicTestStatus("No speech detected. Speak closer or louder.");
+    }
+
+    micTestRaf = requestAnimationFrame(tick);
+  };
+  micTestRaf = requestAnimationFrame(tick);
+}
+
+function clearMicPlayback() {
+  if (micTestPlaybackUrl) {
+    URL.revokeObjectURL(micTestPlaybackUrl);
+    micTestPlaybackUrl = "";
+  }
+  if (ui.micPlayback) {
+    ui.micPlayback.classList.add("hidden");
+    ui.micPlayback.src = "";
+  }
+}
+
+async function recordMicSample() {
+  if (!state.mediaSupported) {
+    setMicTestStatus("Voice mode is not available on this device.");
+    return;
+  }
+  if (!mediaStream) {
+    await setupMediaStream().catch(() => {});
+  }
+  if (!mediaStream) {
+    setMicTestStatus("Microphone is not ready.");
+    return;
+  }
+  if (micTestRecorder && micTestRecorder.state === "recording") {
+    return;
+  }
+  clearMicPlayback();
+  micTestChunks = [];
+  const mimeType = pickRecorderMimeType();
+  const recorderOptions = mimeType ? { mimeType } : undefined;
+  try {
+    micTestRecorder = recorderOptions
+      ? new MediaRecorder(mediaStream, recorderOptions)
+      : new MediaRecorder(mediaStream);
+  } catch (_error) {
+    setMicTestStatus("Sample recording is not supported in this browser.");
+    return;
+  }
+  micTestRecorder.ondataavailable = (event) => {
+    if (event.data.size > 0) {
+      micTestChunks.push(event.data);
+    }
+  };
+  micTestRecorder.onstop = () => {
+    const blobType = micTestRecorder?.mimeType || "audio/webm";
+    const blob = new Blob(micTestChunks, { type: blobType });
+    micTestPlaybackUrl = URL.createObjectURL(blob);
+    if (ui.micPlayback) {
+      ui.micPlayback.src = micTestPlaybackUrl;
+      ui.micPlayback.classList.remove("hidden");
+    }
+    setMicTestStatus("Sample ready. Press play to review.");
+    if (ui.micRecordBtn) {
+      ui.micRecordBtn.disabled = false;
+    }
+  };
+  micTestRecorder.start();
+  setMicTestStatus("Recording sample...");
+  if (ui.micRecordBtn) {
+    ui.micRecordBtn.disabled = true;
+  }
+  window.setTimeout(() => {
+    if (micTestRecorder && micTestRecorder.state === "recording") {
+      micTestRecorder.stop();
+    }
+  }, 3000);
+}
+
 function showPinBlock(show) {
   if (!ui.pinBlock) {
     return;
@@ -457,6 +646,7 @@ function detectInputMode() {
     ui.fallbackControls.classList.remove("hidden");
     ui.submitAnswerBtn.classList.remove("hidden");
   }
+  showMicTest(state.mediaSupported);
 }
 
 function updateBeginEnabled() {
@@ -1576,6 +1766,8 @@ async function beginInterview() {
     handlePinRequired("Enter the class PIN to begin.");
     return;
   }
+  stopMicTest();
+  clearMicPlayback();
   state.studentName = ui.studentName.value.trim();
   state.roleName = ui.roleName.value.trim();
   state.phase = "interview";
@@ -1679,6 +1871,22 @@ function attachEvents() {
       } finally {
         ui.pinBtn.disabled = false;
       }
+    });
+  }
+
+  if (ui.micTestBtn) {
+    ui.micTestBtn.addEventListener("click", () => {
+      void startMicTest();
+    });
+  }
+  if (ui.micStopBtn) {
+    ui.micStopBtn.addEventListener("click", () => {
+      stopMicTest();
+    });
+  }
+  if (ui.micRecordBtn) {
+    ui.micRecordBtn.addEventListener("click", () => {
+      void recordMicSample();
     });
   }
 

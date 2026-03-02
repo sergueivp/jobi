@@ -208,6 +208,66 @@ label {
   color: #7a5520;
 }
 
+.mic-test {
+  margin-top: 16px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 14px;
+  background: #fffaf3;
+}
+
+.mic-test-title {
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mid);
+}
+
+.mic-test-desc {
+  margin: 6px 0 12px;
+  font-size: 12px;
+  color: #6b5b4a;
+}
+
+.mic-test-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.mic-meter {
+  height: 8px;
+  border-radius: 999px;
+  background: #f0e6d8;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.mic-meter-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #2f7d32, #c17f24);
+  transition: width 0.12s ease;
+}
+
+.mic-test-status {
+  font-size: 12px;
+  color: #7a5520;
+}
+
+.mic-playback {
+  margin-top: 10px;
+  width: 100%;
+}
+
+.mic-test-unavailable {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #7a5520;
+}
+
 .btn-primary {
   width: 100%;
   border: 0;

@@ -9,6 +9,7 @@ All notable changes to this project are documented here.
 - Countdown chip and state signalization during VAD silence windows.
 - Memory log (`MEMORY.md`) to record validated good practices.
 - Docker deployment files for Hugging Face Spaces (`Dockerfile`, `.dockerignore`).
+- Microphone check panel on the setup screen (level meter + sample recording).
 
 ### Changed
 - Client question flow: frontend is the single source of progression; backend replies are pruned to avoid next-question leakage.

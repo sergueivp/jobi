@@ -11,7 +11,7 @@
       rel="stylesheet"
     />
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/static/styles.css?v=20260302y" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260302z" />
   </head>
   <body>
     <main class="app-shell" aria-live="polite">
@@ -51,6 +51,24 @@
                 <button id="pin-btn" type="button" class="btn-secondary">Unlock</button>
               </div>
               <div id="pin-status" class="pin-status"></div>
+            </div>
+
+            <div id="mic-test" class="mic-test hidden">
+              <div class="mic-test-title">Microphone Check</div>
+              <div class="mic-test-desc">Speak a few words to confirm we can hear you.</div>
+              <div class="mic-test-row">
+                <button id="mic-test-btn" type="button" class="btn-secondary">Start Mic Test</button>
+                <button id="mic-stop-btn" type="button" class="btn-secondary" disabled>Stop</button>
+                <button id="mic-record-btn" type="button" class="btn-secondary" disabled>Record 3s Sample</button>
+              </div>
+              <div class="mic-meter">
+                <div id="mic-meter-fill" class="mic-meter-fill"></div>
+              </div>
+              <div id="mic-test-status" class="mic-test-status">Microphone is idle.</div>
+              <audio id="mic-playback" class="mic-playback hidden" controls></audio>
+            </div>
+            <div id="mic-test-unavailable" class="mic-test-unavailable hidden">
+              Voice mode is not available on this device. Use dictation or text input during the interview.
             </div>
 
             <div class="warning-box">
@@ -150,6 +168,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=20260302y" defer></script>
+    <script src="/static/app.js?v=20260302z" defer></script>
   </body>
 </html>
