@@ -91,7 +91,9 @@ const ui = {
   micTestStatus: document.getElementById("mic-test-status"),
   micPlayback: document.getElementById("mic-playback"),
   audioTestBtn: document.getElementById("audio-test-btn"),
+  audioOpenBtn: document.getElementById("audio-open-btn"),
   audioTestStatus: document.getElementById("audio-test-status"),
+  audioTestHint: document.getElementById("audio-test-hint"),
   turnIndicator: document.getElementById("turn-indicator"),
   statusLight: document.getElementById("status-light"),
   countdownChip: document.getElementById("countdown-chip"),
@@ -366,6 +368,42 @@ function setAudioTestStatus(message, ok = false) {
   ui.audioTestStatus.style.color = ok ? "#2f7d32" : "#7a5520";
 }
 
+function isInIframe() {
+  try {
+    return window.self !== window.top;
+  } catch (_error) {
+    return true;
+  }
+}
+
+async function playBeep() {
+  if (!window.AudioContext && !window.webkitAudioContext) {
+    return false;
+  }
+  const Ctor = window.AudioContext || window.webkitAudioContext;
+  const ctx = new Ctor();
+  try {
+    if (ctx.state === "suspended") {
+      await ctx.resume();
+    }
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = 440;
+    gain.gain.value = 0.12;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    await new Promise((resolve) => window.setTimeout(resolve, 600));
+    osc.stop();
+    return true;
+  } catch (_error) {
+    return false;
+  } finally {
+    ctx.close().catch(() => {});
+  }
+}
+
 function updateMicMeter(db) {
   if (!ui.micMeterFill) {
     return;
@@ -532,14 +570,30 @@ async function runAudioTest() {
     ui.audioTestBtn.disabled = true;
   }
   unlockAudioOutput(true);
+  if (window.speechSynthesis.paused) {
+    window.speechSynthesis.resume();
+  }
   await ensurePreferredVoice();
   setAudioTestStatus("Playing test...");
+  const voices = window.speechSynthesis.getVoices?.() || [];
+  if (!voices.length) {
+    setAudioTestStatus("No voices available. Try Chrome or open in a new tab.");
+    if (ui.audioTestBtn) {
+      ui.audioTestBtn.disabled = false;
+    }
+    return;
+  }
   const sample = "Audio check. If you hear this, Alex will be audible.";
   const result = await runSynthesisUtterance(sample, activeVoice);
   if (result.ok) {
     setAudioTestStatus("Audio check passed.", true);
   } else {
-    setAudioTestStatus("No audio heard. Try Chrome or enable sound permissions.");
+    const beepOk = await playBeep();
+    if (beepOk) {
+      setAudioTestStatus("Beep played. Speech voice is blocked or unavailable.");
+    } else {
+      setAudioTestStatus("No audio heard. Check system volume or browser permissions.");
+    }
   }
   if (ui.audioTestBtn) {
     ui.audioTestBtn.disabled = false;
@@ -1944,6 +1998,11 @@ function attachEvents() {
       void runAudioTest();
     });
   }
+  if (ui.audioOpenBtn) {
+    ui.audioOpenBtn.addEventListener("click", () => {
+      window.open(window.location.href, "_blank", "noopener");
+    });
+  }
 
   ui.fallbackInput.addEventListener("input", () => {
     if (!state.mediaSupported && state.phase === "interview" && !state.processing) {
@@ -1993,6 +2052,13 @@ async function initialize() {
     setAudioTestStatus("Audio is idle.");
   } else {
     setAudioTestStatus("Audio output is not supported in this browser.");
+  }
+
+  if (ui.audioTestHint) {
+    ui.audioTestHint.classList.toggle("hidden", !isInIframe());
+  }
+  if (ui.audioOpenBtn) {
+    ui.audioOpenBtn.classList.toggle("hidden", !isInIframe());
   }
 
   try {

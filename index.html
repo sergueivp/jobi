@@ -11,7 +11,7 @@
       rel="stylesheet"
     />
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/static/styles.css?v=20260302ac" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260302ad" />
   </head>
   <body>
     <main class="app-shell" aria-live="polite">
@@ -73,8 +73,12 @@
               <div class="mic-test-desc">Play a short sample to confirm you can hear Alex.</div>
               <div class="mic-test-row">
                 <button id="audio-test-btn" type="button" class="btn-secondary">Play Audio Test</button>
+                <button id="audio-open-btn" type="button" class="btn-secondary hidden">Open in New Tab</button>
               </div>
               <div id="audio-test-status" class="mic-test-status">Audio is idle.</div>
+              <div id="audio-test-hint" class="mic-test-hint hidden">
+                If you are running inside an embedded frame, open the app in a new tab for audio.
+              </div>
             </div>
 
             <div class="warning-box">
@@ -174,6 +178,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=20260302ac" defer></script>
+    <script src="/static/app.js?v=20260302ad" defer></script>
   </body>
 </html>
