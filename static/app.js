@@ -56,6 +56,7 @@ const state = {
   pinUnlocked: false,
   pinToken: "",
   serverTtsAvailable: false,
+  speechSynthesisBlocked: false,
   questionIndex: 0,
   history: [],
   probeUsedCurrentQuestion: false,
@@ -654,11 +655,13 @@ async function runAudioTest() {
   const result = await runSynthesisUtterance(sample, activeVoice);
   if (result.ok) {
     setAudioTestStatus("Audio check passed.", true);
+    state.speechSynthesisBlocked = false;
   } else {
     if (state.serverTtsAvailable) {
       const serverOk = await playServerTts(sample);
       if (serverOk) {
         setAudioTestStatus("Server voice check passed.", true);
+        state.speechSynthesisBlocked = true;
       } else {
         setAudioTestStatus("Server voice failed. Check network or API key.");
       }
@@ -666,6 +669,7 @@ async function runAudioTest() {
       const beepOk = await playBeep();
       if (beepOk) {
         setAudioTestStatus("Beep played. Speech voice is blocked or unavailable.");
+        state.speechSynthesisBlocked = true;
       } else {
         setAudioTestStatus("No audio heard. Check system volume or browser permissions.");
       }
@@ -935,7 +939,7 @@ async function ensurePreferredVoice(maxWaitMs = 4200) {
   return activeVoice;
 }
 
-function runSynthesisUtterance(clean, voiceToUse = null, onStart = null) {
+function runSynthesisUtterance(clean, voiceToUse = null, onStart = null, startGuardMs = 3000) {
   return new Promise((resolve) => {
     const synth = window.speechSynthesis;
     const utterance = new SpeechSynthesisUtterance(clean);
@@ -973,7 +977,7 @@ function runSynthesisUtterance(clean, voiceToUse = null, onStart = null) {
         synth.cancel();
         resolveOnce(false);
       }
-    }, 6000);
+    }, startGuardMs);
 
     const words = clean.split(/\s+/).filter(Boolean).length;
     const estimatedMs = words * 430 + 3000;
@@ -1061,13 +1065,15 @@ async function speak(text) {
   let spokenOk = false;
   let started = false;
   try {
-    if (window.speechSynthesis) {
+    const useSpeechSynthesis = window.speechSynthesis && !state.speechSynthesisBlocked;
+    if (useSpeechSynthesis) {
       await ensurePreferredVoice();
-      const firstTry = await runSynthesisUtterance(clean, activeVoice, onSpeechStart);
+      const startGuardMs = state.serverTtsAvailable ? 2000 : 4000;
+      const firstTry = await runSynthesisUtterance(clean, activeVoice, onSpeechStart, startGuardMs);
       spokenOk = firstTry.ok;
       started = firstTry.started;
       if (!firstTry.ok && !started) {
-        const fallbackTry = await runSynthesisUtterance(clean, null, onSpeechStart);
+        const fallbackTry = await runSynthesisUtterance(clean, null, onSpeechStart, startGuardMs);
         spokenOk = fallbackTry.ok;
         started = fallbackTry.started;
       }
