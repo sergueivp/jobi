@@ -562,10 +562,14 @@ async function speak(text) {
     window.speechSynthesis.resume();
   }
 
+  haltRecordingForSpeech();
   speaking = true;
   ui.turnIndicator.textContent = "Turn: Alex speaking";
   setVisualState("speaking");
   lastAlexUtterance = clean;
+  if (ui.recordingState) {
+    ui.recordingState.textContent = "Listening will start automatically when it's your turn.";
+  }
 
   await ensurePreferredVoice();
   const allowBargeIn = state.phase === "interview" && state.mediaSupported && !state.processing;
@@ -692,6 +696,16 @@ function clearAutoListenRetry() {
   if (autoListenRetryTimer) {
     window.clearTimeout(autoListenRetryTimer);
     autoListenRetryTimer = null;
+  }
+}
+
+function haltRecordingForSpeech() {
+  clearAutoListenRetry();
+  stopSilenceMonitor();
+  clearCountdown();
+  if (state.recording || (mediaRecorder && mediaRecorder.state === "recording")) {
+    stopRecording("cancel");
+    state.recording = false;
   }
 }
 
@@ -924,9 +938,8 @@ function startRecording() {
   if (!state.mediaSupported || state.recording) {
     return;
   }
-  if (speaking && window.speechSynthesis) {
-    window.speechSynthesis.cancel();
-    speaking = false;
+  if (speaking) {
+    return;
   }
   if (!mediaStream) {
     ui.recordingState.textContent =
@@ -1030,7 +1043,14 @@ function startRecording() {
         body: form,
       });
       if (!response.ok) {
-        throw new Error(`Transcription failed (${response.status})`);
+        let message = `Transcription failed (${response.status})`;
+        try {
+          const err = await response.json();
+          message = err?.detail?.message || err?.message || message;
+        } catch (_error) {
+          // Ignore JSON parsing errors.
+        }
+        throw new Error(message);
       }
       const payload = await response.json();
       state.pendingStudentText = (payload.text || "").trim();
