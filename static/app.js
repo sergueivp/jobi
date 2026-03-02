@@ -170,6 +170,7 @@ let bargeNoiseFloorDb = -65;
 let bargeSmoothedDb = -100;
 let chunks = [];
 let speaking = false;
+let speechToken = 0;
 let pendingStopAction = "auto"; // auto | send | restart
 
 function setVisualState(mode) {
@@ -576,7 +577,7 @@ async function recordMicSample() {
   }, 3000);
 }
 
-async function playServerTts(text) {
+async function playServerTts(text, onStart = null) {
   if (!state.serverTtsAvailable) {
     return false;
   }
@@ -605,6 +606,15 @@ async function playServerTts(text) {
       const cleanup = (ok) => {
         stopServerTtsPlayback();
         resolve(ok);
+      };
+      let started = false;
+      serverTtsAudio.onplay = () => {
+        if (!started) {
+          started = true;
+          if (onStart) {
+            onStart();
+          }
+        }
       };
       serverTtsAudio.onended = () => cleanup(true);
       serverTtsAudio.onerror = () => cleanup(false);
@@ -925,7 +935,7 @@ async function ensurePreferredVoice(maxWaitMs = 4200) {
   return activeVoice;
 }
 
-function runSynthesisUtterance(clean, voiceToUse = null) {
+function runSynthesisUtterance(clean, voiceToUse = null, onStart = null) {
   return new Promise((resolve) => {
     const synth = window.speechSynthesis;
     const utterance = new SpeechSynthesisUtterance(clean);
@@ -981,6 +991,9 @@ function runSynthesisUtterance(clean, voiceToUse = null) {
       started = true;
       playbackObserved = true;
       window.clearTimeout(startGuardId);
+      if (onStart) {
+        onStart();
+      }
     };
 
     utterance.onend = () => {
@@ -1003,75 +1016,82 @@ async function speak(text) {
   // Keep interview stage audio-first: do not render full assistant utterances on screen.
   setAudioFallback("", false);
 
-  if (!clean || !window.speechSynthesis) {
-    if (clean && state.serverTtsAvailable) {
-      speaking = true;
-      ui.turnIndicator.textContent = "Turn: Alex speaking";
-      setVisualState("speaking");
-      lastAlexUtterance = clean;
-      const ok = await playServerTts(clean);
-      speaking = false;
-      if (!ok) {
-        setStatus("Audio output failed. Enable sound or use Chrome.");
-        setAudioFallback(clean, true);
-      }
-    }
+  if (!clean) {
     return;
   }
 
-  if (window.speechSynthesis.paused) {
-    window.speechSynthesis.resume();
-  }
+  const localToken = ++speechToken;
+  const allowSpeech = () => localToken === speechToken && state.phase === "interview";
 
   haltRecordingForSpeech();
   stopServerTtsPlayback();
-  speaking = true;
-  ui.turnIndicator.textContent = "Turn: Alex speaking";
-  setVisualState("speaking");
-  lastAlexUtterance = clean;
-  if (ui.recordingState) {
-    ui.recordingState.textContent = "Listening will start automatically when it's your turn.";
-  }
-
-  await ensurePreferredVoice();
-  const allowBargeIn = state.phase === "interview" && state.mediaSupported && !state.processing;
-  if (allowBargeIn) {
-    startBargeInMonitor();
-  }
-  let spokenOk = false;
-  let started = false;
-  try {
-    const firstTry = await runSynthesisUtterance(clean, activeVoice);
-    spokenOk = firstTry.ok;
-    started = firstTry.started;
-    if (!firstTry.ok && !started) {
-      // Retry once with browser default voice if preferred voice failed to start/play.
-      const fallbackTry = await runSynthesisUtterance(clean, null);
-      spokenOk = fallbackTry.ok;
-      started = fallbackTry.started;
-    }
-  } finally {
-    if (allowBargeIn) {
-      stopBargeInMonitor();
-    }
-  }
-
-  if (!spokenOk) {
-    if (state.serverTtsAvailable) {
-      const serverOk = await playServerTts(clean);
-      if (!serverOk) {
-        setStatus("Audio output failed. Click Replay to hear Alex.");
-        setAudioFallback(clean, true);
-      } else {
-        spokenOk = true;
-      }
-    } else {
-      setStatus("Audio output failed. Click Replay to hear Alex.");
-      setAudioFallback(clean, true);
+  if (window.speechSynthesis) {
+    window.speechSynthesis.cancel();
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
     }
   }
 
   speaking = false;
+  ui.turnIndicator.textContent = "Turn: Alex responding";
+  setVisualState("thinking");
+  lastAlexUtterance = clean;
+  if (!allowSpeech()) {
+    return;
+  }
+
+  const allowBargeIn = state.phase === "interview" && state.mediaSupported && !state.processing;
+  let bargeStarted = false;
+  const onSpeechStart = () => {
+    if (!allowSpeech()) {
+      return;
+    }
+    speaking = true;
+    ui.turnIndicator.textContent = "Turn: Alex speaking";
+    setVisualState("speaking");
+    if (ui.recordingState) {
+      ui.recordingState.textContent = "Listening will start automatically when it's your turn.";
+    }
+    if (allowBargeIn && !bargeStarted) {
+      startBargeInMonitor();
+      bargeStarted = true;
+    }
+  };
+
+  let spokenOk = false;
+  let started = false;
+  try {
+    if (window.speechSynthesis) {
+      await ensurePreferredVoice();
+      const firstTry = await runSynthesisUtterance(clean, activeVoice, onSpeechStart);
+      spokenOk = firstTry.ok;
+      started = firstTry.started;
+      if (!firstTry.ok && !started) {
+        const fallbackTry = await runSynthesisUtterance(clean, null, onSpeechStart);
+        spokenOk = fallbackTry.ok;
+        started = fallbackTry.started;
+      }
+    }
+  } finally {
+    if (bargeStarted) {
+      stopBargeInMonitor();
+    }
+  }
+
+  if (!spokenOk && state.serverTtsAvailable) {
+    const serverOk = await playServerTts(clean, onSpeechStart);
+    spokenOk = serverOk;
+  }
+
+  if (!spokenOk) {
+    setStatus("Audio output failed. Click Replay to hear Alex.");
+    setAudioFallback(clean, true);
+  }
+
+  speaking = false;
+  if (!allowSpeech()) {
+    return;
+  }
   if (state.phase === "interview" && !state.processing) {
     setVisualState("listening");
   } else {
@@ -1727,6 +1747,7 @@ async function finishInterview(reason = "completed") {
   }
 
   state.phase = "report";
+  speechToken += 1;
   state.endedAt = Date.now();
   stopTimer();
   stopRecording("cancel");
@@ -1735,6 +1756,9 @@ async function finishInterview(reason = "completed") {
   if (window.speechSynthesis) {
     window.speechSynthesis.cancel();
   }
+  stopServerTtsPlayback();
+  stopBargeInMonitor();
+  speaking = false;
 
   setStatus(reason === "manual" ? "Interview ended manually. Generating report..." : "Interview complete. Generating report...");
   showScreen(ui.reportScreen);
