@@ -80,7 +80,6 @@ const ui = {
   roleName: document.getElementById("role-name"),
   pinBlock: document.getElementById("pin-block"),
   pinCode: document.getElementById("pin-code"),
-  pinBtn: document.getElementById("pin-btn"),
   pinStatus: document.getElementById("pin-status"),
   micTest: document.getElementById("mic-test"),
   micTestUnavailable: document.getElementById("mic-test-unavailable"),
@@ -528,6 +527,33 @@ function handlePinRequired(message = "Enter the class PIN to continue.") {
   updateBeginEnabled();
 }
 
+async function tryUnlockPin(pin) {
+  if (!state.pinRequired) {
+    return true;
+  }
+  if (!pin) {
+    setPinStatus("Enter the PIN.");
+    return false;
+  }
+  try {
+    const response = await fetch("/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin }),
+    });
+    if (!response.ok) {
+      throw new Error("Incorrect PIN.");
+    }
+    state.pinUnlocked = true;
+    setPinStatus("Unlocked.", true);
+    showPinBlock(false);
+    return true;
+  } catch (error) {
+    setPinStatus(error.message || "Incorrect PIN.");
+    return false;
+  }
+}
+
 function nowTimestamp() {
   return new Date().toLocaleTimeString("en-GB", { hour12: false });
 }
@@ -651,10 +677,9 @@ function detectInputMode() {
 
 function updateBeginEnabled() {
   const ready =
-    state.questions.length === 7 &&
     ui.studentName.value.trim().length > 0 &&
     ui.roleName.value.trim().length > 0 &&
-    (!state.pinRequired || state.pinUnlocked);
+    (!state.pinRequired || state.pinUnlocked || (ui.pinCode && ui.pinCode.value.trim().length > 0));
   ui.beginBtn.disabled = !ready;
 }
 
@@ -1763,8 +1788,22 @@ async function handleStudentSubmit(textOverride = null) {
 
 async function beginInterview() {
   if (state.pinRequired && !state.pinUnlocked) {
-    handlePinRequired("Enter the class PIN to begin.");
-    return;
+    const pin = ui.pinCode ? ui.pinCode.value.trim() : "";
+    const unlocked = await tryUnlockPin(pin);
+    if (!unlocked) {
+      handlePinRequired("Enter the class PIN to begin.");
+      return;
+    }
+  }
+  if (state.questions.length !== 7) {
+    try {
+      await fetchQuestions();
+    } catch (error) {
+      if (error.message !== "PIN required") {
+        setStatus(`Unable to load questions: ${error.message}`);
+      }
+      return;
+    }
   }
   stopMicTest();
   clearMicPlayback();
@@ -1811,6 +1850,7 @@ function attachEvents() {
       if (state.pinRequired && !state.pinUnlocked) {
         setPinStatus("");
       }
+      updateBeginEnabled();
     });
   }
 
@@ -1837,40 +1877,6 @@ function attachEvents() {
         return;
       }
       await speak(lastAlexUtterance);
-    });
-  }
-
-  if (ui.pinBtn) {
-    ui.pinBtn.addEventListener("click", async () => {
-      if (!ui.pinCode) {
-        return;
-      }
-      const pin = ui.pinCode.value.trim();
-      if (!pin) {
-        setPinStatus("Enter the PIN.");
-        return;
-      }
-      ui.pinBtn.disabled = true;
-      try {
-        const response = await fetch("/auth", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pin }),
-        });
-        if (!response.ok) {
-          throw new Error("Incorrect PIN.");
-        }
-        state.pinUnlocked = true;
-        setPinStatus("Unlocked.", true);
-        showPinBlock(false);
-        updateBeginEnabled();
-        await fetchQuestions();
-        setStatus("Questions loaded. Enter your details to begin.");
-      } catch (error) {
-        setPinStatus(error.message || "Incorrect PIN.");
-      } finally {
-        ui.pinBtn.disabled = false;
-      }
     });
   }
 
@@ -1939,8 +1945,12 @@ async function initialize() {
 
   try {
     await fetchPinStatus();
-    await fetchQuestions();
-    setStatus("Questions loaded. Enter your details to begin.");
+    if (!state.pinRequired || state.pinUnlocked) {
+      await fetchQuestions();
+      setStatus("Questions loaded. Enter your details to begin.");
+    } else {
+      setStatus("Enter the class PIN to load questions.");
+    }
   } catch (error) {
     if (error.message === "PIN required") {
       setStatus("Enter the class PIN to load questions.");

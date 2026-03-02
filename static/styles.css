@@ -177,16 +177,6 @@ label {
   line-height: 1.55;
 }
 
-.pin-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.pin-row input {
-  flex: 1;
-}
-
 .btn-secondary {
   border: 1px solid var(--rule);
   border-radius: 8px;
