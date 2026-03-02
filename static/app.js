@@ -18,7 +18,6 @@ const MIN_SPEECH_SPAN_MS = 1200;
 const MAX_WAIT_FOR_SPEECH_MS = 15000;
 const FORCE_SEND_MS = 35000;
 const MAX_RECORDING_MS = 60000;
-const HISTORY_LIMIT = 16;
 const BARGE_IN_THRESHOLD_DB = -32;
 const BARGE_IN_RISE_DB = 9;
 const BARGE_IN_HOLD_MS = 280;
@@ -175,6 +174,9 @@ let speaking = false;
 let responsePending = false;
 let speechToken = 0;
 let pendingStopAction = "auto"; // auto | send | restart
+let lastTranscribeMs = null;
+let lastChatMs = null;
+let lastTtsMs = null;
 
 function setVisualState(mode) {
   const isSpeaking = mode === "speaking";
@@ -585,6 +587,7 @@ async function playServerTts(text, onStart = null) {
     return false;
   }
   try {
+    const startedAt = performance.now();
     const response = await fetch("/tts", {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
@@ -598,6 +601,7 @@ async function playServerTts(text, onStart = null) {
       return false;
     }
     const blob = await response.blob();
+    lastTtsMs = Math.round(performance.now() - startedAt);
     stopServerTtsPlayback();
     serverTtsUrl = URL.createObjectURL(blob);
     if (!serverTtsAudio) {
@@ -1161,6 +1165,7 @@ function replyContainsCanonicalQuestion(reply, question) {
 
 async function apiPost(path, payload, timeoutMs = 60000) {
   const controller = new AbortController();
+  const startedAt = performance.now();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
   let response;
   try {
@@ -1196,7 +1201,9 @@ async function apiPost(path, payload, timeoutMs = 60000) {
     throw new Error(message);
   }
 
-  return response.json();
+  const data = await response.json();
+  lastChatMs = Math.round(performance.now() - startedAt);
+  return data;
 }
 
 async function setupMediaStream() {
@@ -1467,6 +1474,9 @@ function monitorSilence() {
         `audioCtx: ${audioState}`,
         `accepted: ${speechAccepted}`,
         `streak: ${Math.round(speechStreakMs)}ms`,
+        `transcribe: ${lastTranscribeMs !== null ? `${lastTranscribeMs}ms` : "--"}`,
+        `chat: ${lastChatMs !== null ? `${lastChatMs}ms` : "--"}`,
+        `tts: ${lastTtsMs !== null ? `${lastTtsMs}ms` : "--"}`,
       ].join(" | "),
     );
   }
@@ -1582,6 +1592,7 @@ function startRecording() {
     form.append("duration_ms", String(durationMs));
 
     try {
+      const transcribeStarted = performance.now();
       const response = await fetch("/transcribe", {
         method: "POST",
         headers: authHeaders(),
@@ -1598,6 +1609,7 @@ function startRecording() {
         throw new Error(message);
       }
       const payload = await response.json();
+      lastTranscribeMs = Math.round(performance.now() - transcribeStarted);
       state.pendingStudentText = (payload.text || "").trim();
       if (state.pendingStudentText.length > 0 && looksLikeSpeech(state.pendingStudentText)) {
         ui.recordingState.textContent = "Response captured. Sending...";
@@ -1752,7 +1764,7 @@ async function startClosing() {
 }
 
 async function runChat(studentText) {
-  const historyBeforeAnswer = state.history.slice(-HISTORY_LIMIT);
+  const historyBeforeAnswer = [...state.history];
   pushTurn("user", studentText);
 
   const phase = state.inClosing
