@@ -12,7 +12,7 @@ from typing import Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field
@@ -440,12 +440,14 @@ def create_app() -> FastAPI:
                 allowed.add(request.url.path)
             if request.method != "OPTIONS" and request.url.path not in allowed:
                 if request.cookies.get("nt_pin") != "ok":
-                    raise HTTPException(
+                    return JSONResponse(
                         status_code=401,
-                        detail={
-                            "code": "PIN_REQUIRED",
-                            "message": "PIN required to access this application.",
-                            "retryable": False,
+                        content={
+                            "detail": {
+                                "code": "PIN_REQUIRED",
+                                "message": "PIN required to access this application.",
+                                "retryable": False,
+                            }
                         },
                     )
         response = await call_next(request)
