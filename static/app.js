@@ -90,6 +90,8 @@ const ui = {
   micMeterFill: document.getElementById("mic-meter-fill"),
   micTestStatus: document.getElementById("mic-test-status"),
   micPlayback: document.getElementById("mic-playback"),
+  audioTestBtn: document.getElementById("audio-test-btn"),
+  audioTestStatus: document.getElementById("audio-test-status"),
   turnIndicator: document.getElementById("turn-indicator"),
   statusLight: document.getElementById("status-light"),
   countdownChip: document.getElementById("countdown-chip"),
@@ -356,6 +358,14 @@ function setMicTestStatus(message, ok = false) {
   ui.micTestStatus.style.color = ok ? "#2f7d32" : "#7a5520";
 }
 
+function setAudioTestStatus(message, ok = false) {
+  if (!ui.audioTestStatus) {
+    return;
+  }
+  ui.audioTestStatus.textContent = message;
+  ui.audioTestStatus.style.color = ok ? "#2f7d32" : "#7a5520";
+}
+
 function updateMicMeter(db) {
   if (!ui.micMeterFill) {
     return;
@@ -511,6 +521,29 @@ async function recordMicSample() {
       micTestRecorder.stop();
     }
   }, 3000);
+}
+
+async function runAudioTest() {
+  if (!window.speechSynthesis) {
+    setAudioTestStatus("Audio output is not supported in this browser.");
+    return;
+  }
+  if (ui.audioTestBtn) {
+    ui.audioTestBtn.disabled = true;
+  }
+  unlockAudioOutput(true);
+  await ensurePreferredVoice();
+  setAudioTestStatus("Playing test...");
+  const sample = "Audio check. If you hear this, Alex will be audible.";
+  const result = await runSynthesisUtterance(sample, activeVoice);
+  if (result.ok) {
+    setAudioTestStatus("Audio check passed.", true);
+  } else {
+    setAudioTestStatus("No audio heard. Try Chrome or enable sound permissions.");
+  }
+  if (ui.audioTestBtn) {
+    ui.audioTestBtn.disabled = false;
+  }
 }
 
 function showPinBlock(show) {
@@ -1906,6 +1939,11 @@ function attachEvents() {
       void recordMicSample();
     });
   }
+  if (ui.audioTestBtn) {
+    ui.audioTestBtn.addEventListener("click", () => {
+      void runAudioTest();
+    });
+  }
 
   ui.fallbackInput.addEventListener("input", () => {
     if (!state.mediaSupported && state.phase === "interview" && !state.processing) {
@@ -1952,6 +1990,9 @@ async function initialize() {
     unlockAudioOutput();
     loadVoices();
     window.speechSynthesis.onvoiceschanged = loadVoices;
+    setAudioTestStatus("Audio is idle.");
+  } else {
+    setAudioTestStatus("Audio output is not supported in this browser.");
   }
 
   try {
