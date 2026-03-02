@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NovaTech Interview Simulator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/static/styles.css?v=20260302u" />
+  </head>
+  <body>
+    <main class="app-shell" aria-live="polite">
+      <section id="setup-screen" class="screen" aria-labelledby="setup-title">
+        <div class="setup-card">
+          <div class="logo-bar">
+            <div class="logo-icon">NT</div>
+            <div>
+              <div class="logo-text">NovaTech Interview Simulator</div>
+              <div class="logo-sub">B1-B2 Spoken Assessment</div>
+            </div>
+          </div>
+
+          <h1 id="setup-title">Start Interview</h1>
+          <p class="setup-desc">
+            You are about to begin a 10-12 minute job interview in English with Alex Chen.
+            Answer naturally in professional register. Speak clearly and use earphones.
+          </p>
+
+          <p id="status-line" class="setup-status">Loading interview questions...</p>
+
+          <form id="setup-form">
+            <div class="form-group">
+              <label for="student-name">Your Name</label>
+              <input id="student-name" name="student-name" type="text" maxlength="120" required />
+            </div>
+
+            <div class="form-group">
+              <label for="role-name">Role Applied For</label>
+              <input id="role-name" name="role-name" type="text" maxlength="160" placeholder="e.g. Junior Software Developer" required />
+            </div>
+
+            <div class="warning-box">
+              During the interview screen, text support is intentionally minimal to preserve authentic listening-speaking conditions.
+            </div>
+
+            <button id="begin-btn" type="submit" class="btn-primary" disabled>Begin Interview</button>
+          </form>
+        </div>
+      </section>
+
+      <section id="interview-screen" class="screen hidden" aria-labelledby="interview-title">
+        <h2 id="interview-title" class="sr-only">Interview In Progress</h2>
+
+        <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
+
+        <header class="interview-header">
+          <div class="interview-header-left">
+            <div class="avatar">AC</div>
+            <div>
+              <p class="interviewer-name">Alex Chen</p>
+              <p class="interviewer-title">Senior HR Manager</p>
+            </div>
+          </div>
+          <div class="interview-header-right">
+            <p id="q-counter" class="q-counter">Q 1 / 7</p>
+            <p id="timer" class="timer" aria-label="Interview timer">00:00</p>
+          </div>
+        </header>
+
+        <section class="audio-stage">
+          <div class="speaker-card">
+            <div class="portrait-glow" id="portrait-glow"></div>
+            <div class="speaker-avatar-wrap">
+              <div class="pulse-ring" id="pulse-ring-1"></div>
+              <div class="pulse-ring pulse-ring-2" id="pulse-ring-2"></div>
+              <div class="speaker-avatar">AC</div>
+            </div>
+            <p class="speaker-name">Alex Chen</p>
+            <p class="speaker-role">NovaTech HR</p>
+
+            <div class="sound-wave" id="sound-wave" aria-hidden="true">
+              <span class="wave-bar"></span><span class="wave-bar"></span><span class="wave-bar"></span>
+              <span class="wave-bar"></span><span class="wave-bar"></span><span class="wave-bar"></span>
+              <span class="wave-bar"></span><span class="wave-bar"></span><span class="wave-bar"></span>
+            </div>
+
+            <div class="state-row">
+              <span id="status-light" class="status-light speaking" aria-hidden="true"></span>
+              <p id="turn-indicator" class="state-label speaking">Turn: Alex speaking</p>
+              <span id="countdown-chip" class="countdown-chip hidden" aria-live="polite"></span>
+            </div>
+            <p id="last-alex-line" class="alex-line" aria-label="Last line from Alex"></p>
+            <button id="replay-btn" type="button" class="btn-replay hidden">Replay Alex Audio</button>
+
+            <div id="progress-dots" class="q-dots" aria-label="Question progress"></div>
+          </div>
+        </section>
+
+        <footer class="controls">
+          <div id="recording-controls" class="recording-controls hidden">
+            <div class="controls-label">Voice mode active</div>
+            <div id="recording-state" class="controls-hint">Listening will start automatically when it's your turn.</div>
+          </div>
+          <div id="debug-panel" class="debug-panel hidden" aria-live="polite"></div>
+
+          <div id="fallback-controls" class="fallback-controls hidden">
+            <label for="fallback-input">Use dictation keyboard or type your answer</label>
+            <textarea id="fallback-input" rows="3" maxlength="4000"></textarea>
+            <button id="submit-answer-btn" type="button" class="btn-fallback" disabled>Submit Answer</button>
+          </div>
+
+          <button id="end-interview-btn" type="button" class="btn-end">End Interview</button>
+        </footer>
+      </section>
+
+      <section id="report-screen" class="screen hidden" aria-labelledby="report-title">
+        <h2 id="report-title" class="sr-only">Evaluation Report</h2>
+        <div class="report-stage">
+          <div class="report-card-m">
+            <div class="m-report-header">
+              <div class="m-report-eyebrow">Interview Assessment Report</div>
+              <div id="report-student-name" class="m-report-name">Candidate</div>
+              <div id="report-meta" class="m-report-meta"></div>
+            </div>
+            <div class="m-report-body">
+              <div id="score-grid" class="score-grid hidden"></div>
+              <pre id="report-text" class="m-report-content"></pre>
+            </div>
+            <div class="m-report-actions">
+              <button id="copy-report-btn" type="button" class="m-btn-rep primary">Copy Report</button>
+              <button id="print-report-btn" type="button" class="m-btn-rep">Print / PDF</button>
+              <button id="new-interview-btn" type="button" class="m-btn-rep">New Interview</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/app.js?v=20260302u" defer></script>
+  </body>
+</html>
