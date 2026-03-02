@@ -174,3 +174,15 @@ pytest -q
 ```
 
 Current baseline: `7 passed`.
+
+---
+
+## Project Maintenance
+
+To keep decisions and changes serialized and easy to reuse:
+
+- **Good practices log:** [`MEMORY.md`](./MEMORY.md)  
+  Records validated solutions and architectural choices so we don’t re‑solve the same problems.
+
+- **Change log:** [`CHANGELOG.md`](./CHANGELOG.md)  
+  A dated record of changes across backend, frontend, and prompts.
