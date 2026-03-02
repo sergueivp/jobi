@@ -439,7 +439,9 @@ def create_app() -> FastAPI:
             if request.url.path.startswith("/static"):
                 allowed.add(request.url.path)
             if request.method != "OPTIONS" and request.url.path not in allowed:
-                if request.cookies.get("nt_pin") != "ok":
+                header_pin = request.headers.get("x-access-pin", "").strip()
+                pin_ok = request.cookies.get("nt_pin") == "ok" or (header_pin and header_pin == ACCESS_PIN)
+                if not pin_ok:
                     return JSONResponse(
                         status_code=401,
                         content={

@@ -54,6 +54,7 @@ const state = {
   questions: [],
   pinRequired: false,
   pinUnlocked: false,
+  pinToken: "",
   questionIndex: 0,
   history: [],
   probeUsedCurrentQuestion: false,
@@ -330,6 +331,14 @@ function setStatus(text) {
   ui.statusLine.textContent = text;
 }
 
+function authHeaders(extra = {}) {
+  const headers = { ...extra };
+  if (state.pinRequired && state.pinToken) {
+    headers["X-Access-Pin"] = state.pinToken;
+  }
+  return headers;
+}
+
 function showMicTest(available) {
   if (ui.micTest) {
     ui.micTest.classList.toggle("hidden", !available);
@@ -538,13 +547,14 @@ async function tryUnlockPin(pin) {
   try {
     const response = await fetch("/auth", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ pin }),
     });
     if (!response.ok) {
       throw new Error("Incorrect PIN.");
     }
     state.pinUnlocked = true;
+    state.pinToken = pin;
     setPinStatus("Unlocked.", true);
     showPinBlock(false);
     return true;
@@ -623,7 +633,7 @@ function renderDots() {
 }
 
 async function fetchQuestions() {
-  const response = await fetch("/questions");
+  const response = await fetch("/questions", { headers: authHeaders() });
   if (!response.ok) {
     if (response.status === 401) {
       handlePinRequired();
@@ -912,7 +922,7 @@ async function apiPost(path, payload, timeoutMs = 60000) {
   try {
     response = await fetch(path, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
@@ -1329,6 +1339,7 @@ function startRecording() {
     try {
       const response = await fetch("/transcribe", {
         method: "POST",
+        headers: authHeaders(),
         body: form,
       });
       if (!response.ok) {
