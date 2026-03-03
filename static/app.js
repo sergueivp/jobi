@@ -2212,6 +2212,14 @@ async function handleStudentSubmit(textOverride = null) {
       return;
     }
 
+    const adaptiveNextQuestion =
+      typeof chat.next_question === "string" ? chat.next_question.trim() : "";
+    const nextIndex = state.questionIndex + 1;
+    // Backend may adaptively pick Q3-Q6 from the pooled set.
+    if (adaptiveNextQuestion && nextIndex >= 2 && nextIndex <= 5) {
+      state.questions[nextIndex] = adaptiveNextQuestion;
+    }
+
     state.questionIndex += 1;
     if (state.questionIndex < state.questions.length) {
       const upcomingQuestion = state.questions[state.questionIndex];

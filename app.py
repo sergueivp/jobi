@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -49,6 +50,130 @@ ECHO_OPENERS = (
     "that's useful context",
     "that's helpful context",
 )
+
+POOLED_QUESTIONS: list[dict[str, object]] = [
+    {
+        "id": "A1",
+        "category": "A",
+        "text": "Tell me about a surveying or data collection task you have done - in a project, placement, or university exercise. What instruments or methods did you use, and what was technically challenging about it?",
+        "keywords": ("survey", "instrument", "gnss", "total station", "field", "method"),
+    },
+    {
+        "id": "A2",
+        "category": "A",
+        "text": "Describe a time when you had to process or analyse spatial data under time pressure. What was the dataset, what did you need to produce, and how did you manage it?",
+        "keywords": ("process", "analyse", "data", "qgis", "arcgis", "deadline"),
+    },
+    {
+        "id": "A3",
+        "category": "A",
+        "text": "Have you ever worked with satellite imagery or remote sensing data - in any context, including university work? Tell me what you did with it and what you learned.",
+        "keywords": ("satellite", "remote sensing", "imagery", "sentinel", "landsat", "drone"),
+    },
+    {
+        "id": "A4",
+        "category": "A",
+        "text": "Give me an example of a project where the accuracy of your measurements really mattered. How did you ensure quality control?",
+        "keywords": ("accuracy", "quality", "control", "error", "verification", "precision"),
+    },
+    {
+        "id": "A5",
+        "category": "A",
+        "text": "Tell me about your experience with GIS software. What have you used, for what purpose, and what would you say you can do confidently versus what you are still learning?",
+        "keywords": ("gis", "qgis", "arcgis", "postgis", "software", "mapping"),
+    },
+    {
+        "id": "B1",
+        "category": "B",
+        "text": "Describe a time when you worked on a field survey or project with a team. What was your specific role, and was there a moment when the team had to adapt to something unexpected?",
+        "keywords": ("team", "field", "role", "adapt", "collaboration", "project"),
+    },
+    {
+        "id": "B2",
+        "category": "B",
+        "text": "Tell me about a time you worked with people who had a very different approach to a task than you did - in terms of method, pace, or priorities. How did you handle that?",
+        "keywords": ("different", "style", "conflict", "method", "priority", "handle"),
+    },
+    {
+        "id": "B3",
+        "category": "B",
+        "text": "Give me an example of a situation where you had to explain a technical result - a map, a survey report, or an analysis - to someone who was not a specialist. How did you approach that?",
+        "keywords": ("explain", "technical", "non specialist", "communication", "report", "client"),
+    },
+    {
+        "id": "B4",
+        "category": "B",
+        "text": "Describe a project where coordination between team members was difficult - different schedules, different locations, or different working styles. What did you do to keep things moving?",
+        "keywords": ("coordination", "schedule", "location", "team", "organize", "communication"),
+    },
+    {
+        "id": "C1",
+        "category": "C",
+        "text": "Give me a specific example of something going wrong in a project or field exercise - equipment failure, data quality issue, weather, or unexpected conditions. How did you identify the problem and what did you do?",
+        "keywords": ("problem", "failure", "issue", "weather", "identify", "fix"),
+    },
+    {
+        "id": "C2",
+        "category": "C",
+        "text": "Tell me about a time when you had to complete a task with incomplete information or data. What did you do, and how did you decide when you had enough to move forward?",
+        "keywords": ("incomplete", "uncertain", "decision", "data", "enough", "move forward"),
+    },
+    {
+        "id": "C3",
+        "category": "C",
+        "text": "Describe a situation where you made a mistake in your work - in the field, in data processing, or in a report. What happened, and what did you do about it?",
+        "keywords": ("mistake", "error", "learned", "corrected", "responsibility", "improve"),
+    },
+    {
+        "id": "C4",
+        "category": "C",
+        "text": "Have you ever been in a situation where you disagreed with how a project or task was being done? What did you do - did you say something, and if so, how?",
+        "keywords": ("disagree", "push back", "project", "escalate", "professional", "handle"),
+    },
+    {
+        "id": "D1",
+        "category": "D",
+        "text": "What would you say is your biggest professional strength - and can you give me a concrete example of it in action, from a project or academic work?",
+        "keywords": ("strength", "example", "professional", "evidence", "project", "action"),
+    },
+    {
+        "id": "D2",
+        "category": "D",
+        "text": "Where do you see your career in five years - and how does a role at TerraTech fit into that picture?",
+        "keywords": ("career", "five years", "future", "goal", "trajectory", "fit"),
+    },
+    {
+        "id": "D3",
+        "category": "D",
+        "text": "What is the most interesting geospatial project or development you have followed recently - not from your own work, but from the field in general?",
+        "keywords": ("geospatial", "industry", "recent", "development", "project", "read"),
+    },
+    {
+        "id": "D4",
+        "category": "D",
+        "text": "Tell me about the most technically demanding task you have completed - in university, a placement, or personal work. What made it demanding, and what did you take away from it?",
+        "keywords": ("demanding", "challenge", "technical", "task", "takeaway", "learning"),
+    },
+]
+
+POOL_BY_CATEGORY: dict[str, list[dict[str, object]]] = {"A": [], "B": [], "C": [], "D": []}
+for item in POOLED_QUESTIONS:
+    POOL_BY_CATEGORY[str(item["category"])].append(item)
+
+QUESTION_TEXT_TO_ID: dict[str, str] = {
+    str(item["text"]).strip(): str(item["id"]) for item in POOLED_QUESTIONS
+}
+SLOT_CATEGORY_MAP: dict[int, str] = {3: "A", 4: "B", 5: "C", 6: "D"}
+
+ROLE_PREFERRED_IDS: dict[str, tuple[str, ...]] = {
+    "junior geodetic surveyor": ("A1", "A4", "B1", "B2"),
+    "gis analyst": ("A5", "A2", "C2", "B3"),
+    "remote sensing analyst": ("A3", "A2", "C2", "D3"),
+    "photogrammetry technician": ("A1", "A4", "C1", "B1"),
+    "environmental monitoring specialist": ("A3", "D3", "C2", "B3"),
+    "project geodesist": ("B2", "B4", "D2", "C4"),
+    "spatial data engineer": ("A2", "A5", "C2", "D4"),
+}
 
 
 @dataclass(frozen=True)
@@ -111,6 +236,7 @@ class ChatResponse(BaseModel):
     reply: str
     is_probe: bool
     contains_complete_tag: bool
+    next_question: str | None = None
 
 
 class EvaluateRequest(BaseModel):
@@ -289,6 +415,74 @@ def de_echo_opening(reply: str) -> str:
                 return f"Right. {' '.join(fragments[1:]).strip()}".strip()
             return "Right."
     return reply.strip()
+
+
+def _stable_hash_int(value: str) -> int:
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return int(digest[:12], 16)
+
+
+def _extract_used_pool_ids(history: list[HistoryTurn]) -> set[str]:
+    used: set[str] = set()
+    for turn in history:
+        if turn.role != "assistant":
+            continue
+        question_id = QUESTION_TEXT_TO_ID.get(turn.content.strip())
+        if question_id:
+            used.add(question_id)
+    return used
+
+
+def _role_preference_ids(role_name: str) -> set[str]:
+    normalized = role_name.lower().strip()
+    preferred: set[str] = set()
+    for role_key, ids in ROLE_PREFERRED_IDS.items():
+        if role_key in normalized:
+            preferred.update(ids)
+    return preferred
+
+
+def select_next_pooled_question(
+    next_question_index: int,
+    role_name: str,
+    student_text: str,
+    history: list[HistoryTurn],
+) -> str | None:
+    target_category = SLOT_CATEGORY_MAP.get(next_question_index)
+    if not target_category:
+        return None
+
+    used_ids = _extract_used_pool_ids(history)
+    candidates = [
+        item
+        for item in POOL_BY_CATEGORY.get(target_category, [])
+        if str(item["id"]) not in used_ids
+    ]
+    if not candidates:
+        candidates = list(POOL_BY_CATEGORY.get(target_category, []))
+    if not candidates:
+        return None
+
+    preferred_ids = _role_preference_ids(role_name)
+    student_lower = student_text.lower()
+    base_seed = f"{role_name}|{student_text}|{next_question_index}"
+
+    best_item: dict[str, object] | None = None
+    best_tuple: tuple[int, int] | None = None
+    for item in candidates:
+        item_id = str(item["id"])
+        item_keywords = tuple(str(value).lower() for value in item["keywords"])  # type: ignore[index]
+        keyword_hits = sum(1 for keyword in item_keywords if keyword and keyword in student_lower)
+        score = min(keyword_hits, 3)
+        if item_id in preferred_ids:
+            score += 2
+        tie = _stable_hash_int(f"{base_seed}|{item_id}")
+        rank = (score, tie)
+        if best_tuple is None or rank > best_tuple:
+            best_tuple = rank
+            best_item = item
+
+    return str(best_item["text"]) if best_item else None
 
 
 def format_duration(seconds: int) -> str:
@@ -723,6 +917,7 @@ def create_app() -> FastAPI:
         reply = (completion.choices[0].message.content or "").strip()
         contains_complete_tag = "[INTERVIEW_COMPLETE]" in reply
         is_probe = detect_probe(reply)
+        next_question: str | None = None
 
         # Keep deterministic question flow on the client by removing accidental next-question spillover.
         if payload.phase in {"main_answer", "probe_answer"} and not contains_complete_tag:
@@ -744,10 +939,20 @@ def create_app() -> FastAPI:
             if payload.phase in {"main_answer", "probe_answer"} and reply.strip().endswith("?"):
                 reply = prune_questions_from_reply(reply)
 
+        if payload.phase in {"main_answer", "probe_answer"} and not contains_complete_tag and not is_probe:
+            upcoming_index = payload.question_index + 1
+            next_question = select_next_pooled_question(
+                next_question_index=upcoming_index,
+                role_name=payload.role_name,
+                student_text=payload.student_text,
+                history=payload.history,
+            )
+
         return ChatResponse(
             reply=reply,
             is_probe=is_probe,
             contains_complete_tag=contains_complete_tag,
+            next_question=next_question,
         )
 
     @app.post("/evaluate", response_model=EvaluateResponse)

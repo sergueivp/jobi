@@ -164,6 +164,56 @@ def test_chat_sanitizes_accidental_next_question(monkeypatch) -> None:
     assert "Why specifically NovaTech" not in data["reply"]
 
 
+def test_select_next_pooled_question_returns_slot_category_question() -> None:
+    question = app_module.select_next_pooled_question(
+        next_question_index=3,
+        role_name="Remote Sensing Analyst",
+        student_text="I worked with satellite imagery and Sentinel data.",
+        history=[],
+    )
+    assert question
+    allowed = {entry["text"] for entry in app_module.POOL_BY_CATEGORY["A"]}
+    assert question in allowed
+
+
+def test_chat_returns_adaptive_next_question_for_pool_slots(monkeypatch) -> None:
+    monkeypatch.setattr(
+        app_module,
+        "get_openai_client",
+        lambda: _fake_openai_client("Right. That's clear context."),
+    )
+
+    client = TestClient(app_module.create_app())
+    payload = _chat_payload()
+    payload["question_index"] = 2
+    payload["role_name"] = "GIS Analyst"
+    payload["student_text"] = "I used QGIS and PostGIS to process spatial data under deadline."
+    response = client.post("/chat", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["is_probe"] is False
+    assert isinstance(data.get("next_question"), str)
+    assert data["next_question"]
+
+
+def test_chat_next_question_none_for_fixed_slots(monkeypatch) -> None:
+    monkeypatch.setattr(
+        app_module,
+        "get_openai_client",
+        lambda: _fake_openai_client("Right. Let's continue."),
+    )
+
+    client = TestClient(app_module.create_app())
+    payload = _chat_payload()
+    payload["question_index"] = 1
+    response = client.post("/chat", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data.get("next_question") is None
+
+
 def test_frontend_fetches_questions_and_avoids_hardcoded_q1() -> None:
     js_path = Path(__file__).resolve().parents[1] / "static" / "app.js"
     content = js_path.read_text(encoding="utf-8")
