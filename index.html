@@ -11,7 +11,7 @@
       rel="stylesheet"
     />
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/static/styles.css?v=20260302aj" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260303a" />
   </head>
   <body>
     <main class="app-shell" aria-live="polite">
@@ -65,7 +65,7 @@
               <audio id="mic-playback" class="mic-playback hidden" controls></audio>
             </div>
             <div id="mic-test-unavailable" class="mic-test-unavailable hidden">
-              Voice mode is not available on this device. Use dictation or text input during the interview.
+              Voice mode is not available on this device/browser. Use a current Chrome/Safari version and allow microphone access.
             </div>
 
             <div id="audio-test" class="mic-test">
@@ -83,7 +83,7 @@
             </div>
 
             <div class="warning-box">
-              During the interview screen, text support is intentionally minimal to preserve authentic listening-speaking conditions.
+              This is a voice-only interview activity. Microphone access is required.
             </div>
 
             <button id="begin-btn" type="submit" class="btn-primary" disabled>Begin Interview</button>
@@ -146,12 +146,6 @@
           </div>
           <div id="debug-panel" class="debug-panel hidden" aria-live="polite"></div>
 
-          <div id="fallback-controls" class="fallback-controls hidden">
-            <label for="fallback-input">Use dictation keyboard or type your answer</label>
-            <textarea id="fallback-input" rows="3" maxlength="4000"></textarea>
-            <button id="submit-answer-btn" type="button" class="btn-fallback" disabled>Submit Answer</button>
-          </div>
-
           <button id="end-interview-btn" type="button" class="btn-end">End Interview</button>
         </footer>
       </section>
@@ -179,6 +173,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=20260302aj" defer></script>
+    <script src="/static/app.js?v=20260303a" defer></script>
   </body>
 </html>

@@ -110,11 +110,8 @@ const ui = {
   pulseRing1: document.getElementById("pulse-ring-1"),
   pulseRing2: document.getElementById("pulse-ring-2"),
   recordingControls: document.getElementById("recording-controls"),
-  fallbackControls: document.getElementById("fallback-controls"),
   recordingState: document.getElementById("recording-state"),
   debugPanel: document.getElementById("debug-panel"),
-  fallbackInput: document.getElementById("fallback-input"),
-  submitAnswerBtn: document.getElementById("submit-answer-btn"),
   endInterviewBtn: document.getElementById("end-interview-btn"),
   scoreGrid: document.getElementById("score-grid"),
   reportStudentName: document.getElementById("report-student-name"),
@@ -891,17 +888,13 @@ async function fetchPinStatus() {
 
 function detectInputMode() {
   const hasMediaApis = Boolean(window.MediaRecorder && navigator.mediaDevices?.getUserMedia);
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-  state.mediaSupported = hasMediaApis && !isIOS;
+  state.mediaSupported = hasMediaApis;
 
   if (state.mediaSupported) {
     ui.recordingControls.classList.remove("hidden");
-    ui.fallbackControls.classList.add("hidden");
-    ui.submitAnswerBtn.classList.add("hidden");
+    ui.recordingState.textContent = "Listening will start automatically when it's your turn.";
   } else {
     ui.recordingControls.classList.add("hidden");
-    ui.fallbackControls.classList.remove("hidden");
-    ui.submitAnswerBtn.classList.remove("hidden");
   }
   showMicTest(state.mediaSupported);
 }
@@ -1294,11 +1287,8 @@ async function ensureMediaReady() {
     return Boolean(mediaStream);
   } catch (_error) {
     state.mediaSupported = false;
-    ui.recordingControls.classList.add("hidden");
-    ui.fallbackControls.classList.remove("hidden");
-    ui.submitAnswerBtn.disabled = !ui.fallbackInput.value.trim();
     ui.recordingState.textContent =
-      "Microphone permission or support is unavailable. Use dictation/text input.";
+      "Microphone permission or support is unavailable. Voice mode is required.";
     return false;
   }
 }
@@ -1572,11 +1562,8 @@ function startRecording() {
   }
   if (!mediaStream) {
     ui.recordingState.textContent =
-      "Microphone is not ready. Use the dictation or text box below.";
+      "Microphone is not ready yet. Please allow microphone access and retry.";
     state.mediaSupported = false;
-    ui.recordingControls.classList.add("hidden");
-    ui.fallbackControls.classList.remove("hidden");
-    ui.submitAnswerBtn.disabled = !ui.fallbackInput.value.trim();
     return;
   }
   if (audioContext && audioContext.state === "suspended") {
@@ -1610,11 +1597,8 @@ function startRecording() {
       : new MediaRecorder(mediaStream);
   } catch (_error) {
     ui.recordingState.textContent =
-      "This browser cannot start microphone recording. Use the fallback text/dictation box.";
+      "This browser cannot start microphone recording. Voice mode is required.";
     state.mediaSupported = false;
-    ui.recordingControls.classList.add("hidden");
-    ui.fallbackControls.classList.remove("hidden");
-    ui.submitAnswerBtn.disabled = !ui.fallbackInput.value.trim();
     return;
   }
   mediaRecorder.onstart = () => {
@@ -1792,19 +1776,8 @@ function stopInteractionGuard() {
 }
 
 function setStudentTurnEnabled(enabled) {
-  const canSubmit = enabled && !state.processing;
-
   ui.turnIndicator.textContent = enabled ? "Turn: Your response" : "Turn: Alex speaking";
   setVisualState(enabled ? "listening" : "thinking");
-
-  if (!state.mediaSupported) {
-    ui.fallbackInput.disabled = !enabled;
-    ui.submitAnswerBtn.disabled = !canSubmit || !ui.fallbackInput.value.trim();
-    ui.submitAnswerBtn.classList.remove("hidden");
-  } else {
-    ui.submitAnswerBtn.classList.add("hidden");
-    ui.submitAnswerBtn.disabled = true;
-  }
 }
 
 function registerStrike(replyText) {
@@ -2058,7 +2031,7 @@ async function handleStudentSubmit(textOverride = null) {
       ? String(textOverride)
       : state.mediaSupported
         ? state.pendingStudentText.trim()
-        : ui.fallbackInput.value.trim()
+        : ""
   ).trim();
   if (!text) {
     setStatus("Please provide an answer before submitting.");
@@ -2092,7 +2065,6 @@ async function handleStudentSubmit(textOverride = null) {
       await speak(cleanReply);
     }
 
-    ui.fallbackInput.value = "";
     state.pendingStudentText = "";
 
     if (chat.contains_complete_tag) {
@@ -2182,13 +2154,15 @@ async function beginInterview() {
   state.endedAt = 0;
 
   detectInputMode();
-  await setupMediaStream().catch(() => {
-    state.mediaSupported = false;
-    ui.recordingControls.classList.add("hidden");
-    ui.fallbackControls.classList.remove("hidden");
-    ui.recordingState.textContent =
-      "Microphone permission or recording support is unavailable. Use dictation/text input.";
-  });
+  if (!state.mediaSupported) {
+    setStatus("Voice mode requires microphone recording support. Please use a current Chrome/Safari browser.");
+    return;
+  }
+  const mediaReady = await ensureMediaReady();
+  if (!mediaReady) {
+    setStatus("Microphone access is required for speaking mode. Please allow access and try again.");
+    return;
+  }
 
   showScreen(ui.interviewScreen);
   startTimer();
@@ -2227,7 +2201,10 @@ function attachEvents() {
       await beginInterview();
     } catch (error) {
       setStatus(`Could not start interview: ${error.message}`);
-      ui.beginBtn.disabled = false;
+    } finally {
+      if (state.phase === "setup") {
+        ui.beginBtn.disabled = false;
+      }
     }
   });
 
@@ -2265,14 +2242,6 @@ function attachEvents() {
       window.open(window.location.href, "_blank", "noopener");
     });
   }
-
-  ui.fallbackInput.addEventListener("input", () => {
-    if (!state.mediaSupported && state.phase === "interview" && !state.processing) {
-      ui.submitAnswerBtn.disabled = !ui.fallbackInput.value.trim();
-    }
-  });
-
-  ui.submitAnswerBtn.addEventListener("click", handleStudentSubmit);
 
   ui.endInterviewBtn.addEventListener("click", async () => {
     await finishInterview("manual");
