@@ -73,6 +73,7 @@ const state = {
   recording: false,
   processing: false,
   reportPlainText: "",
+  isMobile: false,
 };
 
 const ui = {
@@ -950,6 +951,7 @@ async function fetchPinStatus() {
 
 function detectInputMode() {
   const hasMediaApis = Boolean(window.MediaRecorder && navigator.mediaDevices?.getUserMedia);
+  state.isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   state.mediaSupported = hasMediaApis;
 
   if (state.mediaSupported) {
@@ -1455,6 +1457,16 @@ function monitorSilence() {
   if (!state.recording || !analyser) {
     return;
   }
+  const isMobileVAD = state.isMobile;
+  const startupCalibrationMs = isMobileVAD ? 1100 : 450;
+  const speechMarginStartDb = isMobileVAD ? 4.5 : SPEECH_MARGIN_START_DB;
+  const speechMarginContinueDb = isMobileVAD ? 2.5 : SPEECH_MARGIN_CONTINUE_DB;
+  const speechOverrideDb = isMobileVAD ? -58 : SPEECH_OVERRIDE_DB;
+  const speechRiseDb = isMobileVAD ? 4.0 : SPEECH_RISE_DB;
+  const speechAcceptMs = isMobileVAD ? 260 : SPEECH_ACCEPT_MS;
+  const speechStartConfirmMs = isMobileVAD ? 360 : 180;
+  const speechStartMinDb = isMobileVAD ? -57 : -63;
+  const minSpeechSpanMs = isMobileVAD ? 1700 : MIN_SPEECH_SPAN_MS;
 
   const frame = new Float32Array(analyser.fftSize);
   analyser.getFloatTimeDomainData(frame);
@@ -1483,24 +1495,34 @@ function monitorSilence() {
       noiseFloorDb = noiseFloorDb * (1 - NOISE_FLOOR_WAITING_ALPHA) + db * NOISE_FLOOR_WAITING_ALPHA;
       noiseFloorDb = Math.max(-90, Math.min(-35, noiseFloorDb));
     }
+    if (elapsed < startupCalibrationMs) {
+      vadPhase = "waiting_for_speech";
+      ui.recordingState.textContent = "Listening... start speaking when ready.";
+      silenceMonitorRaf = requestAnimationFrame(monitorSilence);
+      return;
+    }
   }
 
-  const startThreshold = Math.max(ABS_MIN_SPEECH_START_DB, noiseFloorDb + SPEECH_MARGIN_START_DB);
+  const startThreshold = Math.max(ABS_MIN_SPEECH_START_DB, noiseFloorDb + speechMarginStartDb);
   const continueThreshold = Math.max(
     ABS_MIN_SPEECH_CONTINUE_DB,
-    noiseFloorDb + SPEECH_MARGIN_CONTINUE_DB,
+    noiseFloorDb + speechMarginContinueDb,
   );
   const thresholdSpeech =
     vadPhase === "speaking" || vadPhase === "trailing_silence" || vadPhase === "finalize_pending"
       ? db > continueThreshold
       : db > startThreshold;
-  const speechNow = thresholdSpeech || db > SPEECH_OVERRIDE_DB || db - noiseFloorDb >= SPEECH_RISE_DB;
+  const riseDetected = db - noiseFloorDb >= speechRiseDb;
+  const speechNow = thresholdSpeech || db > speechOverrideDb || (vadPhase !== "waiting_for_speech" && riseDetected);
   if (speechNow) {
     speechStreakMs = Math.min(2000, speechStreakMs + frameDelta);
   } else {
     speechStreakMs = 0;
   }
-  const speechAccepted = speechNow && speechStreakMs >= SPEECH_ACCEPT_MS;
+  const speechAccepted = speechNow && speechStreakMs >= speechAcceptMs;
+  const speechStartGateDb = Math.max(startThreshold + (isMobileVAD ? 1.6 : 0.8), speechStartMinDb);
+  const speechStartConfirmed =
+    speechAccepted && speechStreakMs >= speechStartConfirmMs && db >= speechStartGateDb;
 
   if (speechNow && !prevSpeechNow) {
     resumeCooldownUntil = now + 1600;
@@ -1514,7 +1536,7 @@ function monitorSilence() {
     }
   }
 
-  if (speechAccepted) {
+  if (speechStartConfirmed) {
     if (!hasVoiceActivity) {
       firstVoiceAt = now;
     }
@@ -1532,7 +1554,7 @@ function monitorSilence() {
       ui.recordingState.textContent =
         "Still listening... speak a bit louder or check microphone access.";
     }
-    if (speechAccepted) {
+    if (speechStartConfirmed) {
       vadPhase = "speaking";
       ui.recordingState.textContent = "Listening... I will send automatically when you finish.";
     } else {
@@ -1547,7 +1569,7 @@ function monitorSilence() {
   const canFinalize =
     elapsed >= MIN_RECORDING_MS &&
     elapsed >= STARTUP_GRACE_MS &&
-    spokenFor >= MIN_SPEECH_SPAN_MS &&
+    spokenFor >= minSpeechSpanMs &&
     elapsed >= AUTO_SEND_MIN_RECORDING_MS &&
     now >= resumeCooldownUntil;
 
@@ -1628,6 +1650,8 @@ function monitorSilence() {
         `noise: ${noiseFloorDb.toFixed(1)}`,
         `startThr: ${startThreshold.toFixed(1)}`,
         `contThr: ${continueThreshold.toFixed(1)}`,
+        `profile: ${isMobileVAD ? "mobile" : "desktop"}`,
+        `startOk: ${speechStartConfirmed}`,
         `recording: ${state.recording}`,
         `recorder: ${recorderState}`,
         `audioCtx: ${audioState}`,
