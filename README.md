@@ -171,7 +171,7 @@ Open [http://localhost:8000](http://localhost:8000).
 - `GET /attempts/status` → returns attempt usage (max 3 attempts per student/role)
 - `POST /transcribe` → Whisper transcription for recorded audio
 - `POST /chat` → Alex reply + `is_probe` + `[INTERVIEW_COMPLETE]` detection
-- `POST /evaluate` → CEFR report + structured scores + signed report package
+- `POST /evaluate` → CEFR report + structured scores + signed report package (+ final-attempt teacher email queue when configured)
 - `POST /verify-report` → verifies server signature for submitted report JSON
 
 ## Signed Report Verification
@@ -188,6 +188,22 @@ curl -X POST https://<your-space>.hf.space/verify-report \
 ```
 
 The endpoint returns `{"valid": true/false, ...}`.
+
+## Final Attempt Email Delivery (Teacher Copy)
+
+On attempt `3/3` (final graded attempt), the server can automatically email the teacher with:
+- score summary
+- report excerpt
+- attached signed JSON report package
+
+Set these environment variables (HF Space Secrets):
+- `TEACHER_EMAIL`
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_USERNAME`
+- `SMTP_PASSWORD`
+- `SMTP_FROM`
+- `SMTP_SECURITY` (`ssl`, `starttls`, or `none`)
 
 ## Test Suite
 

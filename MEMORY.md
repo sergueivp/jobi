@@ -94,3 +94,9 @@ This file is **for the assistant’s use**. It captures validated solutions and 
 **Decision:** Move to 0-4 scale, support total=0 as no assessable performance, and align strike behavior with rubric v2.
 **Evidence:** Silent/incomplete edge cases now produce explicit zero-performance outcomes instead of minimum 1-point inflation.
 **Reuse rule:** If rubric allows 0, validation schema, grade mapping, and cap logic must all support 0 consistently.
+
+### 2026-03-03 — Final graded attempt teacher copy
+**Context:** Students can edit text before LMS upload; teacher needs trusted copy.
+**Decision:** On attempt 3/3, queue server-side SMTP email to teacher and attach signed JSON report package.
+**Evidence:** Teacher receives immutable signed artifact independently of student submission flow.
+**Reuse rule:** For high-stakes submission, always generate a server-origin teacher copy on final assessment event.

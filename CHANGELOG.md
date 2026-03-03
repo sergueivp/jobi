@@ -8,6 +8,7 @@ All notable changes to this project are documented here.
 - Signed report package on evaluation responses and a verification endpoint: `POST /verify-report`.
 - Report download action in UI for student submission (`Download Signed Report` JSON package).
 - Canonical rubric file `RUBRIC.md` (v2).
+- Optional final-attempt teacher email delivery (SMTP) with signed JSON attachment.
 
 ### Changed
 - Evaluation output now includes attempt metadata and signed package payload alongside report text/scores.

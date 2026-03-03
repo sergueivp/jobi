@@ -353,6 +353,7 @@ def test_attempt_status_defaults_to_first_attempt() -> None:
 
 def test_evaluate_enforces_three_attempt_limit_and_marks_final(monkeypatch) -> None:
     monkeypatch.setattr(app_module, "get_openai_client", lambda: _fake_eval_openai_client())
+    monkeypatch.setattr(app_module, "email_delivery_configured", lambda: False)
 
     client = TestClient(app_module.create_app())
     payload = _evaluate_payload()
@@ -374,6 +375,7 @@ def test_evaluate_enforces_three_attempt_limit_and_marks_final(monkeypatch) -> N
     third_data = third.json()
     assert third_data["attempt"]["attempt_number"] == 3
     assert third_data["attempt"]["is_assessment_attempt"] is True
+    assert third_data["final_report_email_status"] == "not_configured"
 
     fourth = client.post("/evaluate", json=payload)
     assert fourth.status_code == 403
@@ -399,3 +401,21 @@ def test_signed_report_package_can_be_verified(monkeypatch) -> None:
     rejected = client.post("/verify-report", json=tampered)
     assert rejected.status_code == 200
     assert rejected.json()["valid"] is False
+
+
+def test_final_attempt_email_status_queued_when_configured(monkeypatch) -> None:
+    monkeypatch.setattr(app_module, "get_openai_client", lambda: _fake_eval_openai_client())
+    monkeypatch.setattr(app_module, "email_delivery_configured", lambda: True)
+    monkeypatch.setattr(app_module, "send_final_report_email", lambda *args, **kwargs: None)
+
+    client = TestClient(app_module.create_app())
+    payload = _evaluate_payload(student_name="Ana", role_name="GIS Analyst")
+
+    client.post("/evaluate", json=payload)
+    client.post("/evaluate", json=payload)
+    third = client.post("/evaluate", json=payload)
+
+    assert third.status_code == 200
+    body = third.json()
+    assert body["attempt"]["attempt_number"] == 3
+    assert body["final_report_email_status"] == "queued"

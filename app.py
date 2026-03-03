@@ -8,12 +8,14 @@ import re
 import hashlib
 import hmac
 import base64
+import smtplib
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from email.message import EmailMessage
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -36,6 +38,13 @@ TTS_VOICE = os.getenv("TTS_VOICE", "alloy")
 MAX_ATTEMPTS = 3
 ATTEMPTS_COOKIE_NAME = "tt_attempts"
 ATTEMPTS_COOKIE_TTL_HOURS = int(os.getenv("ATTEMPTS_COOKIE_TTL_HOURS", "720"))
+TEACHER_EMAIL = os.getenv("TEACHER_EMAIL", "").strip()
+SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
+SMTP_USERNAME = os.getenv("SMTP_USERNAME", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+SMTP_FROM = os.getenv("SMTP_FROM", "").strip() or SMTP_USERNAME
+SMTP_SECURITY = os.getenv("SMTP_SECURITY", "ssl").strip().lower()  # ssl | starttls | none
 
 PROBE_PHRASES = (
     "tell me more",
@@ -309,6 +318,7 @@ class EvaluateResponse(BaseModel):
     scores: ScorePayload
     attempt: AttemptResult | None = None
     report_package: SignedReportPackage | None = None
+    final_report_email_status: str | None = None
 
 
 class PinRequest(BaseModel):
@@ -697,6 +707,81 @@ def verify_signed_report_package(report_package: SignedReportPackage) -> tuple[b
         return False, "Issued-at mismatch."
 
     return True, None
+
+
+def email_delivery_configured() -> bool:
+    return bool(TEACHER_EMAIL and SMTP_HOST and SMTP_FROM and (SMTP_PASSWORD or not SMTP_USERNAME))
+
+
+def send_final_report_email(
+    student_name: str,
+    role_name: str,
+    report_text: str,
+    scores: ScorePayload,
+    report_package: SignedReportPackage,
+) -> None:
+    if not email_delivery_configured():
+        logger.warning("Final report email skipped: SMTP not configured.")
+        return
+
+    subject = f"TerraTech Final Attempt Report | {student_name} | {report_package.report_id}"
+    body_lines = [
+        "Final attempt report generated.",
+        "",
+        f"Student: {student_name}",
+        f"Role: {role_name}",
+        f"Report ID: {report_package.report_id}",
+        f"Issued at: {report_package.issued_at}",
+        f"Total: {scores.total if scores.total is not None else '-'} / 20",
+        f"Grade: {scores.grade or '-'}",
+        f"CEFR: {scores.cefr or '-'}",
+        "",
+        "Signed report package is attached as JSON.",
+        "",
+        "Report excerpt:",
+        report_text[:5000],
+    ]
+
+    message = EmailMessage()
+    message["From"] = SMTP_FROM
+    message["To"] = TEACHER_EMAIL
+    message["Subject"] = subject
+    message.set_content("\n".join(body_lines))
+
+    package_bytes = json.dumps(
+        report_package.model_dump(),
+        ensure_ascii=False,
+        indent=2,
+    ).encode("utf-8")
+    message.add_attachment(
+        package_bytes,
+        maintype="application",
+        subtype="json",
+        filename=f"{report_package.report_id}.json",
+    )
+
+    try:
+        if SMTP_SECURITY == "starttls":
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=25) as smtp:
+                smtp.ehlo()
+                smtp.starttls()
+                smtp.ehlo()
+                if SMTP_USERNAME:
+                    smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
+                smtp.send_message(message)
+        elif SMTP_SECURITY == "none":
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=25) as smtp:
+                if SMTP_USERNAME:
+                    smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
+                smtp.send_message(message)
+        else:
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=25) as smtp:
+                if SMTP_USERNAME:
+                    smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
+                smtp.send_message(message)
+        logger.info("Final report email sent for report_id=%s", report_package.report_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Failed to send final report email: %s", exc)
 
 
 def read_audio_bytes(result: object) -> bytes:
@@ -1178,7 +1263,12 @@ def create_app() -> FastAPI:
         )
 
     @app.post("/evaluate", response_model=EvaluateResponse)
-    async def evaluate_interview(payload: EvaluateRequest, request: Request, http_response: Response) -> EvaluateResponse:
+    async def evaluate_interview(
+        payload: EvaluateRequest,
+        request: Request,
+        http_response: Response,
+        background_tasks: BackgroundTasks,
+    ) -> EvaluateResponse:
         if not payload.transcript:
             raise HTTPException(
                 status_code=400,
@@ -1243,6 +1333,25 @@ def create_app() -> FastAPI:
                 ).hexdigest(),
             }
             report_package = create_signed_report_package(report_payload)
+            email_status: str | None = None
+
+            if attempt_result.is_assessment_attempt:
+                if email_delivery_configured():
+                    background_tasks.add_task(
+                        send_final_report_email,
+                        payload.student_name,
+                        payload.role_name,
+                        full_report_text,
+                        scores,
+                        report_package,
+                    )
+                    email_status = "queued"
+                else:
+                    logger.warning(
+                        "Final attempt email not configured; report_id=%s",
+                        report_package.report_id,
+                    )
+                    email_status = "not_configured"
 
             attempt_store[attempt_key] = attempt_number
             max_age = max(1, ATTEMPTS_COOKIE_TTL_HOURS) * 3600
@@ -1259,6 +1368,7 @@ def create_app() -> FastAPI:
                 scores=scores,
                 attempt=attempt_result,
                 report_package=report_package,
+                final_report_email_status=email_status,
             )
 
         eval_template = _load_text(PATHS.evaluation_prompt)
