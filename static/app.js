@@ -26,6 +26,8 @@ const BARGE_IN_NOISE_MAX_RISE_DB = 2.5;
 const PREFERRED_VOICE_NAME = "Google US English";
 const PREFERRED_VOICE_LANG = "en-us";
 const FORCE_SERVER_VOICE = true;
+const SILENT_WAV_DATA_URI =
+  "data:audio/wav;base64,UklGRjQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YRAAAAAAAAAAAAAAAAAAAAAA";
 const RECORDER_MIME_CANDIDATES = [
   "audio/webm;codecs=opus",
   "audio/webm",
@@ -161,6 +163,7 @@ let micTestStartedAt = 0;
 let micTestLastSpeechAt = 0;
 let serverTtsAudio = null;
 let serverTtsUrl = "";
+let serverAudioUnlocked = false;
 let bargeInRaf = null;
 let bargeStartAt = 0;
 let bargeFrameAt = 0;
@@ -243,14 +246,16 @@ function unlockAudioOutput(force = false) {
 }
 
 function setAudioFallback(text, visible) {
-  if (!ui.lastAlexLine) {
-    return;
+  // Audio-first interview design: do not render assistant transcript/replay controls.
+  void text;
+  void visible;
+  if (ui.lastAlexLine) {
+    ui.lastAlexLine.textContent = "";
+    ui.lastAlexLine.classList.remove("audio-fallback");
   }
-  ui.lastAlexLine.textContent = visible ? text : "";
-  ui.lastAlexLine.classList.toggle("audio-fallback", visible);
   if (ui.replayBtn) {
-    ui.replayBtn.classList.toggle("hidden", !visible);
-    ui.replayBtn.disabled = !visible;
+    ui.replayBtn.classList.add("hidden");
+    ui.replayBtn.disabled = true;
   }
 }
 
@@ -357,10 +362,43 @@ function stopServerTtsPlayback() {
   if (serverTtsAudio) {
     serverTtsAudio.pause();
     serverTtsAudio.currentTime = 0;
+    serverTtsAudio.onplay = null;
+    serverTtsAudio.onended = null;
+    serverTtsAudio.onerror = null;
   }
   if (serverTtsUrl) {
     URL.revokeObjectURL(serverTtsUrl);
     serverTtsUrl = "";
+  }
+}
+
+async function unlockServerAudioOutput(force = false) {
+  if (!FORCE_SERVER_VOICE || !state.serverTtsAvailable) {
+    return false;
+  }
+  if (serverAudioUnlocked && !force) {
+    return true;
+  }
+  try {
+    if (!serverTtsAudio) {
+      serverTtsAudio = new Audio();
+      serverTtsAudio.preload = "auto";
+      serverTtsAudio.playsInline = true;
+    }
+    serverTtsAudio.src = SILENT_WAV_DATA_URI;
+    serverTtsAudio.muted = true;
+    const playPromise = serverTtsAudio.play();
+    if (playPromise && typeof playPromise.then === "function") {
+      await playPromise;
+    }
+    serverTtsAudio.pause();
+    serverTtsAudio.currentTime = 0;
+    serverTtsAudio.muted = false;
+    serverAudioUnlocked = true;
+    return true;
+  } catch (_error) {
+    serverAudioUnlocked = false;
+    return false;
   }
 }
 
@@ -648,6 +686,7 @@ async function runAudioTest() {
     ui.audioTestBtn.disabled = true;
   }
   unlockAudioOutput(true);
+  await unlockServerAudioOutput(true);
   if (window.speechSynthesis.paused) {
     window.speechSynthesis.resume();
   }
@@ -883,6 +922,7 @@ async function fetchTtsStatus() {
     if (state.serverTtsAvailable) {
       // Lock to server voice quality when available.
       state.speechSynthesisBlocked = true;
+      await unlockServerAudioOutput();
     }
   } catch (_error) {
     // Non-fatal.
@@ -2242,6 +2282,7 @@ function attachEvents() {
   ui.setupForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     unlockAudioOutput(true);
+    await unlockServerAudioOutput(true);
     try {
       window.speechSynthesis?.getVoices?.();
     } catch (_error) {
