@@ -6,6 +6,8 @@ All notable changes to this project are documented here.
 - `.env` is now loaded before reading runtime constants, so SMTP/OpenAI values from `.env` are actually applied in local runs.
 - Report screen now shows explicit teacher-email delivery status (`sent`, `not configured`, or `failed` with error excerpt).
 - Added startup log line with email configuration flags (no secret values) to speed up deployment debugging.
+- Email delivery now supports `resend` (HTTPS) and `smtp`, with `auto` selection preferring Resend when configured.
+- SMTP failures can automatically fall back to Resend when both methods are configured.
 
 ### Added
 - `GET /email/status` now includes `smtp_port` for clearer SMTP diagnostics.

@@ -60,12 +60,15 @@ def test_questions_endpoint_returns_500_on_parser_error(monkeypatch) -> None:
 
 def test_email_status_endpoint_exposes_smtp_flags(monkeypatch) -> None:
     monkeypatch.setattr(app_module, "TEACHER_EMAIL", "teacher@example.com")
+    monkeypatch.setattr(app_module, "EMAIL_DELIVERY_METHOD", "auto")
     monkeypatch.setattr(app_module, "SMTP_HOST", "smtp.example.com")
     monkeypatch.setattr(app_module, "SMTP_PORT", 465)
     monkeypatch.setattr(app_module, "SMTP_USERNAME", "teacher@example.com")
     monkeypatch.setattr(app_module, "SMTP_PASSWORD", "secret")
     monkeypatch.setattr(app_module, "SMTP_FROM", "teacher@example.com")
     monkeypatch.setattr(app_module, "SMTP_SECURITY", "ssl")
+    monkeypatch.setattr(app_module, "RESEND_API_KEY", "")
+    monkeypatch.setattr(app_module, "RESEND_FROM", "")
     app_module.LAST_EMAIL_EVENT.update(
         {
             "last_status": "sent",
@@ -80,13 +83,39 @@ def test_email_status_endpoint_exposes_smtp_flags(monkeypatch) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["configured"] is True
+    assert payload["method"] == "smtp"
+    assert payload["smtp_configured"] is True
     assert payload["smtp_host_set"] is True
     assert payload["smtp_port"] == 465
     assert payload["smtp_username_set"] is True
     assert payload["smtp_from_set"] is True
     assert payload["smtp_security"] == "ssl"
+    assert payload["resend_configured"] is False
+    assert payload["resend_from_set"] is False
     assert payload["last_status"] == "sent"
     assert payload["last_report_id"] == "rep_abc"
+
+
+def test_email_status_prefers_resend_in_auto_mode(monkeypatch) -> None:
+    monkeypatch.setattr(app_module, "TEACHER_EMAIL", "teacher@example.com")
+    monkeypatch.setattr(app_module, "EMAIL_DELIVERY_METHOD", "auto")
+    monkeypatch.setattr(app_module, "SMTP_HOST", "")
+    monkeypatch.setattr(app_module, "SMTP_PORT", 465)
+    monkeypatch.setattr(app_module, "SMTP_USERNAME", "")
+    monkeypatch.setattr(app_module, "SMTP_PASSWORD", "")
+    monkeypatch.setattr(app_module, "SMTP_FROM", "")
+    monkeypatch.setattr(app_module, "RESEND_API_KEY", "re_abc")
+    monkeypatch.setattr(app_module, "RESEND_FROM", "TerraTech <noreply@example.com>")
+
+    client = TestClient(app_module.create_app())
+    response = client.get("/email/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["configured"] is True
+    assert payload["method"] == "resend"
+    assert payload["smtp_configured"] is False
+    assert payload["resend_configured"] is True
 
 
 def _fake_openai_client(reply_text: str):

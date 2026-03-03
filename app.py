@@ -15,6 +15,8 @@ from email.message import EmailMessage
 from pathlib import Path
 from threading import Lock
 from typing import Literal
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -74,6 +76,10 @@ SMTP_USERNAME = os.getenv("SMTP_USERNAME", "").strip()
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
 SMTP_FROM = os.getenv("SMTP_FROM", "").strip() or SMTP_USERNAME
 SMTP_SECURITY = os.getenv("SMTP_SECURITY", "ssl").strip().lower()  # ssl | starttls | none
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
+RESEND_FROM = os.getenv("RESEND_FROM", "").strip()
+RESEND_API_URL = os.getenv("RESEND_API_URL", "https://api.resend.com/emails").strip()
+EMAIL_DELIVERY_METHOD = os.getenv("EMAIL_DELIVERY_METHOD", "auto").strip().lower()  # auto | resend | smtp
 
 PROBE_PHRASES = (
     "tell me more",
@@ -355,11 +361,14 @@ class EmailStatusResponse(BaseModel):
     configured: bool
     method: str
     teacher_email_set: bool
+    smtp_configured: bool
     smtp_host_set: bool
     smtp_port: int
     smtp_username_set: bool
     smtp_from_set: bool
     smtp_security: str
+    resend_configured: bool
+    resend_from_set: bool
     last_status: str | None = None
     last_error: str | None = None
     last_report_id: str | None = None
@@ -822,29 +831,54 @@ def verify_signed_report_package(report_package: SignedReportPackage) -> tuple[b
     return True, None
 
 
-def email_delivery_configured() -> bool:
+def smtp_delivery_configured() -> bool:
     return bool(TEACHER_EMAIL and SMTP_HOST and SMTP_FROM and (SMTP_PASSWORD or not SMTP_USERNAME))
 
 
-def send_final_report_email(
+def resend_delivery_configured() -> bool:
+    return bool(TEACHER_EMAIL and RESEND_API_KEY and RESEND_FROM)
+
+
+def email_delivery_configured() -> bool:
+    return smtp_delivery_configured() or resend_delivery_configured()
+
+
+def email_delivery_method() -> str:
+    preferred = EMAIL_DELIVERY_METHOD
+    if preferred == "resend" and resend_delivery_configured():
+        return "resend"
+    if preferred == "smtp" and smtp_delivery_configured():
+        return "smtp"
+    if preferred == "resend":
+        return "not_configured"
+    if preferred == "smtp":
+        return "not_configured"
+    # auto mode: prefer Resend on hosted environments where SMTP ports may be blocked.
+    if resend_delivery_configured():
+        return "resend"
+    if smtp_delivery_configured():
+        return "smtp"
+    return "not_configured"
+
+
+def _mark_email_event(status: str, report_id: str, error_text: str | None = None) -> None:
+    LAST_EMAIL_EVENT.update(
+        {
+            "last_status": status,
+            "last_error": error_text,
+            "last_report_id": report_id,
+            "last_updated_at": now_iso_utc(),
+        }
+    )
+
+
+def _build_final_report_email_parts(
     student_name: str,
     role_name: str,
     report_text: str,
     scores: ScorePayload,
     report_package: SignedReportPackage,
-) -> tuple[bool, str | None]:
-    if not email_delivery_configured():
-        logger.warning("Final report email skipped: SMTP not configured.")
-        LAST_EMAIL_EVENT.update(
-            {
-                "last_status": "not_configured",
-                "last_error": "SMTP not configured",
-                "last_report_id": report_package.report_id,
-                "last_updated_at": now_iso_utc(),
-            }
-        )
-        return False, "not_configured"
-
+) -> tuple[str, list[str], bytes]:
     subject = f"TerraTech Final Attempt Report | {student_name} | {report_package.report_id}"
     body_lines = [
         "Final attempt report generated.",
@@ -862,65 +896,142 @@ def send_final_report_email(
         "Report excerpt:",
         report_text[:5000],
     ]
-
-    message = EmailMessage()
-    message["From"] = SMTP_FROM
-    message["To"] = TEACHER_EMAIL
-    message["Subject"] = subject
-    message.set_content("\n".join(body_lines))
-
     package_bytes = json.dumps(
         report_package.model_dump(),
         ensure_ascii=False,
         indent=2,
     ).encode("utf-8")
+    return subject, body_lines, package_bytes
+
+
+def _send_via_smtp(
+    subject: str,
+    body_lines: list[str],
+    package_bytes: bytes,
+    report_id: str,
+) -> tuple[bool, str | None]:
+    message = EmailMessage()
+    message["From"] = SMTP_FROM
+    message["To"] = TEACHER_EMAIL
+    message["Subject"] = subject
+    message.set_content("\n".join(body_lines))
     message.add_attachment(
         package_bytes,
         maintype="application",
         subtype="json",
-        filename=f"{report_package.report_id}.json",
+        filename=f"{report_id}.json",
     )
+    if SMTP_SECURITY == "starttls":
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=25) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
+            smtp.ehlo()
+            if SMTP_USERNAME:
+                smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
+            smtp.send_message(message)
+    elif SMTP_SECURITY == "none":
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=25) as smtp:
+            if SMTP_USERNAME:
+                smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
+            smtp.send_message(message)
+    else:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=25) as smtp:
+            if SMTP_USERNAME:
+                smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
+            smtp.send_message(message)
+    logger.info("Final report email sent via SMTP for report_id=%s", report_id)
+    return True, None
+
+
+def _send_via_resend(
+    subject: str,
+    body_lines: list[str],
+    package_bytes: bytes,
+    report_id: str,
+) -> tuple[bool, str | None]:
+    payload = {
+        "from": RESEND_FROM,
+        "to": [TEACHER_EMAIL],
+        "subject": subject,
+        "text": "\n".join(body_lines),
+        "attachments": [
+            {
+                "filename": f"{report_id}.json",
+                "content": base64.b64encode(package_bytes).decode("ascii"),
+                "content_type": "application/json",
+            }
+        ],
+    }
+    request = urllib_request.Request(
+        RESEND_API_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib_request.urlopen(request, timeout=25) as response:  # noqa: S310
+            status = getattr(response, "status", 200)
+            body = response.read().decode("utf-8", errors="replace")
+            if status < 200 or status >= 300:
+                return False, f"Resend HTTP {status}: {body[:250]}"
+    except urllib_error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        return False, f"Resend HTTP {exc.code}: {body[:250]}"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"Resend error: {exc}"
+    logger.info("Final report email sent via Resend for report_id=%s", report_id)
+    return True, None
+
+
+def send_final_report_email(
+    student_name: str,
+    role_name: str,
+    report_text: str,
+    scores: ScorePayload,
+    report_package: SignedReportPackage,
+) -> tuple[bool, str | None]:
+    if not email_delivery_configured():
+        logger.warning("Final report email skipped: no delivery method configured.")
+        _mark_email_event("not_configured", report_package.report_id, "No email delivery method configured")
+        return False, "not_configured"
+
+    subject, body_lines, package_bytes = _build_final_report_email_parts(
+        student_name=student_name,
+        role_name=role_name,
+        report_text=report_text,
+        scores=scores,
+        report_package=report_package,
+    )
+    method = email_delivery_method()
 
     try:
-        if SMTP_SECURITY == "starttls":
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=25) as smtp:
-                smtp.ehlo()
-                smtp.starttls()
-                smtp.ehlo()
-                if SMTP_USERNAME:
-                    smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
-                smtp.send_message(message)
-        elif SMTP_SECURITY == "none":
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=25) as smtp:
-                if SMTP_USERNAME:
-                    smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
-                smtp.send_message(message)
+        if method == "resend":
+            sent, error_message = _send_via_resend(subject, body_lines, package_bytes, report_package.report_id)
+        elif method == "smtp":
+            sent, error_message = _send_via_smtp(subject, body_lines, package_bytes, report_package.report_id)
         else:
-            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=25) as smtp:
-                if SMTP_USERNAME:
-                    smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
-                smtp.send_message(message)
-        logger.info("Final report email sent for report_id=%s", report_package.report_id)
-        LAST_EMAIL_EVENT.update(
-            {
-                "last_status": "sent",
-                "last_error": None,
-                "last_report_id": report_package.report_id,
-                "last_updated_at": now_iso_utc(),
-            }
-        )
-        return True, None
+            sent, error_message = False, "No configured email delivery method"
+        if sent:
+            _mark_email_event("sent", report_package.report_id, None)
+            return True, None
+        _mark_email_event("failed", report_package.report_id, error_message)
+        return False, error_message
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Failed to send final report email: %s", exc)
-        LAST_EMAIL_EVENT.update(
-            {
-                "last_status": "failed",
-                "last_error": str(exc),
-                "last_report_id": report_package.report_id,
-                "last_updated_at": now_iso_utc(),
-            }
-        )
-        return False, str(exc)
+        error_text = str(exc)
+        # Hosted environments often block SMTP egress; auto-fallback to Resend if configured.
+        if method == "smtp" and resend_delivery_configured():
+            logger.warning("SMTP email failed (%s). Retrying via Resend.", error_text)
+            sent, resend_error = _send_via_resend(subject, body_lines, package_bytes, report_package.report_id)
+            if sent:
+                _mark_email_event("sent", report_package.report_id, None)
+                return True, None
+            error_text = f"{error_text}; fallback resend failed: {resend_error}"
+        logger.exception("Failed to send final report email: %s", error_text)
+        _mark_email_event("failed", report_package.report_id, error_text)
+        return False, error_text
 
 
 def read_audio_bytes(result: object) -> bytes:
@@ -1131,14 +1242,16 @@ def create_app() -> FastAPI:
         load_attempt_store_if_needed()
         logger.info("Prompt validation completed.")
         logger.info(
-            "Email delivery config: configured=%s teacher_set=%s host_set=%s username_set=%s from_set=%s security=%s port=%s",
+            (
+                "Email delivery config: configured=%s method=%s mode=%s "
+                "smtp_configured=%s resend_configured=%s teacher_set=%s"
+            ),
             email_delivery_configured(),
+            email_delivery_method(),
+            EMAIL_DELIVERY_METHOD,
+            smtp_delivery_configured(),
+            resend_delivery_configured(),
             bool(TEACHER_EMAIL),
-            bool(SMTP_HOST),
-            bool(SMTP_USERNAME),
-            bool(SMTP_FROM),
-            SMTP_SECURITY,
-            SMTP_PORT,
         )
 
     @app.get("/")
@@ -1165,13 +1278,16 @@ def create_app() -> FastAPI:
     async def email_status() -> EmailStatusResponse:
         return EmailStatusResponse(
             configured=email_delivery_configured(),
-            method="smtp",
+            method=email_delivery_method(),
             teacher_email_set=bool(TEACHER_EMAIL),
+            smtp_configured=smtp_delivery_configured(),
             smtp_host_set=bool(SMTP_HOST),
             smtp_port=SMTP_PORT,
             smtp_username_set=bool(SMTP_USERNAME),
             smtp_from_set=bool(SMTP_FROM),
             smtp_security=SMTP_SECURITY,
+            resend_configured=resend_delivery_configured(),
+            resend_from_set=bool(RESEND_FROM),
             last_status=LAST_EMAIL_EVENT.get("last_status"),
             last_error=LAST_EMAIL_EVENT.get("last_error"),
             last_report_id=LAST_EMAIL_EVENT.get("last_report_id"),

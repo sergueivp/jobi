@@ -199,12 +199,20 @@ On attempt `3/3` (final graded attempt), the server can automatically email the 
 
 Set these environment variables (HF Space Secrets):
 - `TEACHER_EMAIL`
+- `EMAIL_DELIVERY_METHOD` (`auto`, `resend`, `smtp`)
+
+SMTP method:
 - `SMTP_HOST`
 - `SMTP_PORT`
 - `SMTP_USERNAME`
 - `SMTP_PASSWORD`
 - `SMTP_FROM`
 - `SMTP_SECURITY` (`ssl`, `starttls`, or `none`)
+
+Resend method (HTTPS, recommended on HF Spaces):
+- `RESEND_API_KEY`
+- `RESEND_FROM`
+- `RESEND_API_URL` (optional, default `https://api.resend.com/emails`)
 
 Quick diagnostics:
 
@@ -215,8 +223,12 @@ curl https://<your-space>.hf.space/email/status \
 
 Check:
 - `configured: true`
+- `method: resend` or `method: smtp` (active sender)
 - `last_status: sent` after a final attempt
 - if `last_status: failed`, inspect `last_error` for the SMTP failure reason
+
+Note: On Hugging Face Spaces, outbound SMTP ports are often restricted.  
+If you see `Network is unreachable` for SMTP, switch to `RESEND_*` secrets and keep `EMAIL_DELIVERY_METHOD=auto` or `resend`.
 
 Optional hardening:
 - `LOCK_BROWSER_AFTER_FINAL=true` (default): after attempt 3, this browser session is locked from calling interview API endpoints.

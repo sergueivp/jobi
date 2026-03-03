@@ -118,3 +118,9 @@ This file is **for the assistant’s use**. It captures validated solutions and 
 **Decision:** Load `.env` before initializing runtime constants.
 **Evidence:** SMTP/OpenAI flags now reflect `.env` values during startup and in `/email/status`.
 **Reuse rule:** Any env-backed constants must be initialized only after env loaders run.
+
+### 2026-03-04 — HF-friendly email transport
+**Context:** SMTP delivery from hosted environments can fail with `Network is unreachable` due blocked SMTP egress.
+**Decision:** Add HTTPS-based email transport (`Resend`) and auto-select it when configured; keep SMTP as optional fallback.
+**Evidence:** Email transport can run over standard HTTPS (`443`) where SMTP ports are unavailable.
+**Reuse rule:** For cloud-hosted classrooms, prefer HTTPS email APIs over raw SMTP.
