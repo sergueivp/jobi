@@ -323,6 +323,10 @@ function startBargeInMonitor() {
       }
       stopServerTtsPlayback();
       speaking = false;
+      ui.turnIndicator.textContent = "Turn: Your response";
+      if (ui.recordingState) {
+        ui.recordingState.textContent = "Listening... start speaking when ready.";
+      }
       setVisualState("listening");
       stopBargeInMonitor();
       void scheduleAutoListen(0);
@@ -1143,7 +1147,13 @@ async function speak(text) {
     return;
   }
 
-  const allowBargeIn = state.phase === "interview" && state.mediaSupported && !state.processing;
+  const hasStudentTurn = state.history.some((turn) => turn.role === "user");
+  const allowBargeIn =
+    state.phase === "interview" &&
+    state.mediaSupported &&
+    !state.processing &&
+    !state.isMobile &&
+    hasStudentTurn;
   let bargeStarted = false;
   const onSpeechStart = () => {
     if (!allowSpeech()) {
