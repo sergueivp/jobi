@@ -207,6 +207,7 @@ Set these environment variables (HF Space Secrets):
 
 Optional hardening:
 - `LOCK_BROWSER_AFTER_FINAL=true` (default): after attempt 3, this browser session is locked from calling interview API endpoints.
+- `ATTEMPT_STORE_PATH=.attempts_store.json`: server-side persistent attempt counter store path.
 
 ## Test Suite
 

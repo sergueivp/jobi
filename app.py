@@ -13,9 +13,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
+from threading import Lock
 from typing import Literal
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -45,6 +46,7 @@ LOCK_BROWSER_AFTER_FINAL = os.getenv("LOCK_BROWSER_AFTER_FINAL", "true").strip()
     "yes",
     "on",
 }
+ATTEMPT_STORE_PATH_RAW = os.getenv("ATTEMPT_STORE_PATH", "").strip()
 TEACHER_EMAIL = os.getenv("TEACHER_EMAIL", "").strip()
 SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
 SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
@@ -215,6 +217,10 @@ PATHS = Paths(
     evaluation_prompt=PROMPTS_DIR / "evaluation_prompt.txt",
     index_html=BASE_DIR / "index.html",
 )
+ATTEMPT_STORE_PATH = Path(ATTEMPT_STORE_PATH_RAW) if ATTEMPT_STORE_PATH_RAW else BASE_DIR / ".attempts_store.json"
+ATTEMPT_STORE_LOCK = Lock()
+ATTEMPT_STORE_CACHE: dict[str, int] = {}
+ATTEMPT_STORE_LOADED = False
 
 
 def load_env_file(path: Path) -> None:
@@ -656,6 +662,54 @@ def serialize_attempt_cookie(store: dict[str, int]) -> str:
     return f"{payload_b64}.{signature}"
 
 
+def _sanitize_attempt_store(store: object) -> dict[str, int]:
+    if not isinstance(store, dict):
+        return {}
+    sanitized: dict[str, int] = {}
+    for key, value in store.items():
+        if isinstance(key, str) and isinstance(value, int):
+            sanitized[key] = max(0, min(MAX_ATTEMPTS, value))
+    return sanitized
+
+
+def load_attempt_store_if_needed() -> None:
+    global ATTEMPT_STORE_LOADED
+    if ATTEMPT_STORE_LOADED:
+        return
+    with ATTEMPT_STORE_LOCK:
+        if ATTEMPT_STORE_LOADED:
+            return
+        try:
+            if ATTEMPT_STORE_PATH.exists():
+                parsed = json.loads(ATTEMPT_STORE_PATH.read_text(encoding="utf-8"))
+                ATTEMPT_STORE_CACHE.clear()
+                ATTEMPT_STORE_CACHE.update(_sanitize_attempt_store(parsed))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to load attempt store: %s", exc)
+            ATTEMPT_STORE_CACHE.clear()
+        ATTEMPT_STORE_LOADED = True
+
+
+def persist_attempt_store() -> None:
+    try:
+        ATTEMPT_STORE_PATH.write_text(canonical_json(ATTEMPT_STORE_CACHE), encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to persist attempt store: %s", exc)
+
+
+def get_server_attempts(key: str) -> int:
+    load_attempt_store_if_needed()
+    with ATTEMPT_STORE_LOCK:
+        return max(0, min(MAX_ATTEMPTS, ATTEMPT_STORE_CACHE.get(key, 0)))
+
+
+def set_server_attempts(key: str, attempts_used: int) -> None:
+    load_attempt_store_if_needed()
+    with ATTEMPT_STORE_LOCK:
+        ATTEMPT_STORE_CACHE[key] = max(0, min(MAX_ATTEMPTS, attempts_used))
+        persist_attempt_store()
+
+
 def build_attempt_status(attempts_used: int) -> AttemptStatusResponse:
     used = max(0, min(MAX_ATTEMPTS, attempts_used))
     is_locked = used >= MAX_ATTEMPTS
@@ -683,7 +737,12 @@ def build_attempt_status(attempts_used: int) -> AttemptStatusResponse:
 def attempts_used_for_identity(request: Request, student_name: str, role_name: str) -> int:
     key = normalize_attempt_key(student_name, role_name)
     store = parse_attempt_cookie(request.cookies.get(ATTEMPTS_COOKIE_NAME))
-    return store.get(key, 0)
+    cookie_used = store.get(key, 0)
+    server_used = get_server_attempts(key)
+    if cookie_used > server_used:
+        set_server_attempts(key, cookie_used)
+        return cookie_used
+    return server_used
 
 
 def ensure_attempts_available(request: Request, student_name: str, role_name: str) -> None:
@@ -749,10 +808,10 @@ def send_final_report_email(
     report_text: str,
     scores: ScorePayload,
     report_package: SignedReportPackage,
-) -> None:
+) -> tuple[bool, str | None]:
     if not email_delivery_configured():
         logger.warning("Final report email skipped: SMTP not configured.")
-        return
+        return False, "not_configured"
 
     subject = f"TerraTech Final Attempt Report | {student_name} | {report_package.report_id}"
     body_lines = [
@@ -810,8 +869,10 @@ def send_final_report_email(
                     smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
                 smtp.send_message(message)
         logger.info("Final report email sent for report_id=%s", report_package.report_id)
+        return True, None
     except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to send final report email: %s", exc)
+        return False, str(exc)
 
 
 def read_audio_bytes(result: object) -> bytes:
@@ -1019,6 +1080,7 @@ def create_app() -> FastAPI:
         questions_cache.clear()
         questions_cache.extend(parsed_questions)
         _ = _load_text(PATHS.evaluation_prompt)
+        load_attempt_store_if_needed()
         logger.info("Prompt validation completed.")
 
     @app.get("/")
@@ -1107,9 +1169,8 @@ def create_app() -> FastAPI:
                     "retryable": False,
                 },
             )
-        key = normalize_attempt_key(student, role)
-        store = parse_attempt_cookie(request.cookies.get(ATTEMPTS_COOKIE_NAME))
-        return build_attempt_status(store.get(key, 0))
+        used = attempts_used_for_identity(request, student, role)
+        return build_attempt_status(used)
 
     @app.post("/transcribe")
     async def transcribe_audio(
@@ -1329,7 +1390,6 @@ def create_app() -> FastAPI:
         payload: EvaluateRequest,
         request: Request,
         http_response: Response,
-        background_tasks: BackgroundTasks,
     ) -> EvaluateResponse:
         if not payload.transcript:
             raise HTTPException(
@@ -1343,7 +1403,7 @@ def create_app() -> FastAPI:
 
         attempt_key = normalize_attempt_key(payload.student_name, payload.role_name)
         attempt_store = parse_attempt_cookie(request.cookies.get(ATTEMPTS_COOKIE_NAME))
-        attempts_used = attempt_store.get(attempt_key, 0)
+        attempts_used = attempts_used_for_identity(request, payload.student_name, payload.role_name)
         attempt_status = build_attempt_status(attempts_used)
         if attempt_status.is_locked:
             raise HTTPException(
@@ -1399,15 +1459,14 @@ def create_app() -> FastAPI:
 
             if attempt_result.is_assessment_attempt:
                 if email_delivery_configured():
-                    background_tasks.add_task(
-                        send_final_report_email,
+                    sent, error_message = send_final_report_email(
                         payload.student_name,
                         payload.role_name,
                         full_report_text,
                         scores,
                         report_package,
                     )
-                    email_status = "queued"
+                    email_status = "sent" if sent else f"failed: {error_message or 'unknown error'}"
                 else:
                     logger.warning(
                         "Final attempt email not configured; report_id=%s",
@@ -1415,6 +1474,7 @@ def create_app() -> FastAPI:
                     )
                     email_status = "not_configured"
 
+            set_server_attempts(attempt_key, attempt_number)
             attempt_store[attempt_key] = attempt_number
             max_age = max(1, ATTEMPTS_COOKIE_TTL_HOURS) * 3600
             http_response.set_cookie(

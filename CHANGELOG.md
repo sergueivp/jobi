@@ -26,6 +26,8 @@ All notable changes to this project are documented here.
   - strike-based C5 caps and C1=0 at strike 3 (rubric v2 alignment)
 - Server-side hard lock now blocks interview API-cost endpoints after final attempt (`SESSION_LOCKED`), reducing API credit leakage.
 - `/chat` and `/transcribe` now enforce attempt availability before OpenAI calls.
+- Attempt tracking now persists server-side (`ATTEMPT_STORE_PATH`) so limits still apply when browser cookies are restricted.
+- Final-attempt teacher email status is now synchronous (`sent` / `failed: ...` / `not_configured`) for clearer operational feedback.
 
 ### Fixed
 - Resolved forward-reference typing issue in `EvaluateResponse` for Python 3.13.

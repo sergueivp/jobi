@@ -106,3 +106,9 @@ This file is **for the assistant’s use**. It captures validated solutions and 
 **Decision:** Add backend `SESSION_LOCKED` middleware gate for API-cost endpoints after final attempt cookie is set.
 **Evidence:** Post-final `/transcribe`, `/chat`, `/tts`, `/evaluate` and `/questions` are blocked server-side on locked sessions.
 **Reuse rule:** Any spend-sensitive policy must be enforced server-side before external API calls.
+
+### 2026-03-03 — Cookie-independent attempt persistence
+**Context:** Some browsers/embeds restrict cookies, breaking cookie-only attempt counters.
+**Decision:** Persist attempt counts server-side (`ATTEMPT_STORE_PATH`) and merge with cookie counts when available.
+**Evidence:** Attempt limits remain enforceable even when browser cookie state is unstable.
+**Reuse rule:** For classroom limits, do not rely exclusively on client/browser persistence.

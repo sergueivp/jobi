@@ -2234,7 +2234,18 @@ async function finishInterview(reason = "completed") {
 
     renderScores(payload.scores);
     renderReportText(payload.report_text || "No report returned.");
-    setStatus("Report ready.");
+    if (payload.final_report_email_status === "sent") {
+      setStatus("Report ready. Final report emailed to teacher.");
+    } else if (payload.final_report_email_status === "not_configured") {
+      setStatus("Report ready. Teacher email is not configured.");
+    } else if (
+      typeof payload.final_report_email_status === "string" &&
+      payload.final_report_email_status.startsWith("failed:")
+    ) {
+      setStatus("Report ready. Teacher email failed. Check server logs.");
+    } else {
+      setStatus("Report ready.");
+    }
   } catch (error) {
     ui.scoreGrid.classList.add("hidden");
     state.attemptResult = null;

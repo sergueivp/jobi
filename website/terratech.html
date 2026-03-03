@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TerraTech Geospatial Solutions</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&family=Outfit:wght@300;400;500&family=DM+Mono:wght@300;400&family=Lexend:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:18px}
+:root{
+  --void:#0a0908;--deep:#111008;--ink:#1a1714;--stone:#3d3a35;--pewter:#7a756e;
+  --parchment:#f0ebe0;--ivory:#f7f3ec;--white:#fdfcfa;
+  --accent:#c4933a;--accent-lt:#d4a84e;--accent-dk:#9a6e22;
+  --ff-display:"Cormorant Garamond",serif;
+  --ff-body:"Outfit",sans-serif;
+  --ff-mono:"DM Mono",monospace;
+}
+body{font-family:var(--ff-body);background:var(--ivory);color:var(--ink);overflow-x:hidden;cursor:none}
+
+/* CURSOR */
+.cursor{position:fixed;width:9px;height:9px;background:var(--accent);border-radius:50%;pointer-events:none;z-index:9999;transform:translate(-50%,-50%);transition:width .2s,height .2s;mix-blend-mode:multiply}
+.cursor-ring{position:fixed;width:34px;height:34px;border:1px solid var(--accent);border-radius:50%;pointer-events:none;z-index:9998;transform:translate(-50%,-50%);transition:width .3s,height .3s,opacity .3s;opacity:.5}
+
+/* GRAIN */
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:9990;opacity:.03;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");background-size:180px}
+
+/* ACCESSIBILITY TOGGLE */
+#a11y-toggle{position:fixed;bottom:28px;right:28px;z-index:9995;display:flex;align-items:center;gap:10px;background:rgba(10,9,8,.88);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.12);padding:12px 20px;cursor:pointer;font-family:var(--ff-mono);font-size:12px;font-weight:300;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.45);transition:border-color .25s,color .25s;user-select:none}
+#a11y-toggle:hover{border-color:rgba(255,255,255,.3);color:rgba(255,255,255,.85)}
+.toggle-dot{width:9px;height:9px;border-radius:50%;background:var(--accent);flex-shrink:0;transition:background .3s}
+#a11y-mode-icons{display:flex;gap:6px;margin-left:4px}
+.mode-pip{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.15);transition:background .3s}
+.mode-pip.active{background:var(--accent)}
+
+/* NAV */
+nav{position:fixed;top:0;left:0;right:0;z-index:1000;display:flex;align-items:center;justify-content:space-between;padding:28px 64px;transition:padding .4s,background .4s}
+nav.scrolled{padding:18px 64px;background:rgba(10,9,8,.92);backdrop-filter:blur(16px);border-bottom:1px solid rgba(255,255,255,.05)}
+.nav-brand{display:flex;align-items:baseline;gap:10px;text-decoration:none}
+.nav-wordmark{font-family:var(--ff-display);font-weight:500;font-size:22px;letter-spacing:.08em;color:#fff}
+.nav-sub{font-family:var(--ff-mono);font-size:10px;font-weight:300;letter-spacing:.2em;text-transform:uppercase;color:var(--accent)}
+.nav-links{display:flex;gap:40px;list-style:none}
+.nav-links a{font-family:var(--ff-mono);font-size:11px;font-weight:300;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.45);text-decoration:none;transition:color .25s;position:relative}
+.nav-links a::after{content:"";position:absolute;bottom:-3px;left:0;right:0;height:1px;background:var(--accent);transform:scaleX(0);transition:transform .25s}
+.nav-links a:hover{color:rgba(255,255,255,.9)}
+.nav-links a:hover::after{transform:scaleX(1)}
+.nav-apply{font-family:var(--ff-mono);font-size:11px;font-weight:400;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);text-decoration:none;border-bottom:1px solid var(--accent-dk);padding-bottom:2px;transition:color .25s,border-color .25s}
+.nav-apply:hover{color:var(--accent-lt);border-color:var(--accent-lt)}
+
+/* HERO */
+#hero{height:100vh;min-height:700px;background:var(--void);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;position:relative}
+.globe-wrap{position:absolute;top:50%;right:-6vw;transform:translateY(-50%);width:68vw;max-width:880px;aspect-ratio:1;opacity:.16}
+.globe-wrap svg{width:100%;height:100%;animation:globe-spin 80s linear infinite}
+@keyframes globe-spin{to{transform:rotate(360deg)}}
+.coord-label{position:absolute;font-family:var(--ff-mono);font-size:11px;letter-spacing:.16em;color:rgba(255,255,255,.16);text-transform:uppercase}
+.coord-1{top:120px;right:60px}.coord-2{bottom:120px;right:200px}.coord-3{top:200px;left:64px}
+.hero-content{position:relative;z-index:2;padding:0 64px 88px;max-width:1100px;width:100%}
+.hero-coords{font-family:var(--ff-mono);font-size:12px;font-weight:300;letter-spacing:.22em;color:var(--accent);margin-bottom:48px;opacity:0;animation:fadeUp 1s ease .3s forwards}
+.hero-title{font-family:var(--ff-display);font-weight:300;font-size:clamp(64px,9vw,116px);line-height:.92;color:#fff;letter-spacing:-.01em;opacity:0;animation:fadeUp 1s ease .55s forwards}
+.hero-title em{font-style:italic;color:var(--accent)}
+.line-indent{padding-left:2.2em}
+.hero-descriptor{display:flex;align-items:center;gap:24px;margin-top:48px;opacity:0;animation:fadeUp 1s ease .8s forwards}
+.hero-descriptor-rule{width:40px;height:1px;background:var(--accent-dk);flex-shrink:0}
+.hero-descriptor p{font-size:18px;font-weight:300;color:rgba(255,255,255,.5);line-height:1.65;max-width:480px;letter-spacing:.01em}
+.hero-stats{position:absolute;right:64px;bottom:88px;display:flex;flex-direction:column;gap:32px;z-index:2;text-align:right;opacity:0;animation:fadeUp 1s ease 1.05s forwards}
+.hero-stat-num{font-family:var(--ff-display);font-weight:300;font-size:48px;color:#fff;line-height:1}
+.hero-stat-label{font-family:var(--ff-mono);font-size:11px;font-weight:300;letter-spacing:.2em;text-transform:uppercase;color:rgba(255,255,255,.3);margin-top:4px}
+.scroll-hint{position:absolute;bottom:40px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;z-index:2;opacity:0;animation:fadeUp 1s ease 1.3s forwards}
+.scroll-hint span{font-family:var(--ff-mono);font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:rgba(255,255,255,.2)}
+.scroll-line{width:1px;height:44px;background:linear-gradient(to bottom,var(--accent-dk),transparent);animation:scrollPulse 2s ease-in-out infinite}
+@keyframes scrollPulse{0%,100%{opacity:.3;transform:scaleY(1)}50%{opacity:.8;transform:scaleY(1.3)}}
+
+/* SECTION UTILITIES */
+.sec-mark{display:flex;align-items:center;gap:16px;margin-bottom:24px}
+.sec-mark-line{width:20px;height:1px;background:var(--accent)}
+.sec-mark-text{font-family:var(--ff-mono);font-size:11px;font-weight:300;letter-spacing:.24em;text-transform:uppercase;color:var(--accent)}
+.sec-title{font-family:var(--ff-display);font-weight:400;font-size:clamp(44px,5vw,70px);line-height:1.05;letter-spacing:-.01em;color:var(--ink)}
+.sec-title em{font-style:italic}
+.sec-title.light{color:#fff}
+
+/* ABOUT */
+#about{background:var(--white);padding:140px 64px;display:grid;grid-template-columns:1fr 1fr;gap:120px;align-items:start}
+.about-body{margin-top:40px;font-size:20px;font-weight:300;color:var(--stone);line-height:1.85;letter-spacing:.01em}
+.about-body p+p{margin-top:22px}
+.about-pull{margin-top:48px;padding:36px 0 36px 32px;border-left:1px solid var(--accent-dk)}
+.about-pull p{font-family:var(--ff-display);font-style:italic;font-size:27px;font-weight:300;line-height:1.55;color:var(--ink)}
+
+/* DELUXE TIMELINE */
+.timeline{position:relative;padding-left:40px}
+.timeline::before{content:"";position:absolute;left:0;top:0;bottom:0;width:1px;background:linear-gradient(to bottom,transparent,var(--accent-dk) 10%,var(--accent-dk) 90%,transparent)}
+.tl-item{position:relative;padding:0 0 52px 48px}
+.tl-item:last-child{padding-bottom:0}
+.tl-dot{position:absolute;left:-7px;top:8px;width:15px;height:15px;border-radius:50%;border:1px solid var(--accent);background:var(--white);transition:background .3s,transform .3s;z-index:2}
+.tl-item:hover .tl-dot{background:var(--accent);transform:scale(1.3)}
+.tl-connector{position:absolute;left:8px;top:23px;width:32px;height:1px;background:var(--accent-dk);opacity:.5}
+.tl-year-badge{display:inline-flex;align-items:center;padding:5px 14px;background:var(--void);border:1px solid rgba(196,147,58,.25);margin-bottom:12px}
+.tl-year-text{font-family:var(--ff-mono);font-size:13px;font-weight:400;color:var(--accent);letter-spacing:.1em}
+.tl-era{font-family:var(--ff-mono);font-size:10px;font-weight:300;color:rgba(255,255,255,.3);letter-spacing:.15em;margin-left:10px;padding-left:10px;border-left:1px solid rgba(255,255,255,.1)}
+.tl-title{font-family:var(--ff-display);font-size:22px;font-weight:500;color:var(--ink);margin-bottom:8px;letter-spacing:.01em}
+.tl-body{font-size:16px;font-weight:300;color:var(--pewter);line-height:1.7}
+.tl-tag{display:inline-block;margin-top:10px;font-family:var(--ff-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent-dk);border-bottom:1px solid rgba(196,147,58,.2);padding-bottom:2px}
+
+/* SECTORS */
+#sectors{background:var(--void);padding:140px 64px}
+#sectors .sec-title{margin-bottom:80px}
+.sectors-grid{display:grid;grid-template-columns:repeat(3,1fr)}
+.sector-card{padding:48px 40px;border-right:1px solid rgba(255,255,255,.05);transition:background .4s;position:relative;overflow:hidden}
+.sector-card::before{content:"";position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(to right,transparent,var(--accent-dk),transparent);transform:scaleX(0);transition:transform .5s}
+.sector-card:hover::before{transform:scaleX(1)}
+.sector-card:hover{background:rgba(196,147,58,.05)}
+.sector-card:last-child{border-right:none}
+.sector-num{font-family:var(--ff-mono);font-size:11px;font-weight:300;letter-spacing:.25em;color:var(--accent-dk);margin-bottom:40px}
+.sector-heading{font-family:var(--ff-display);font-weight:400;font-size:30px;color:#fff;line-height:1.2;margin-bottom:20px}
+.sector-text{font-size:16px;font-weight:300;color:rgba(255,255,255,.38);line-height:1.8}
+.sector-list{margin-top:36px;display:flex;flex-direction:column}
+.sector-item{font-size:15px;font-weight:300;color:rgba(255,255,255,.28);padding:11px 0;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:12px;transition:color .2s;line-height:1.5}
+.sector-item::before{content:"—";color:var(--accent-dk);font-family:var(--ff-mono);font-size:11px;flex-shrink:0}
+.sector-card:hover .sector-item{color:rgba(255,255,255,.5)}
+
+/* CASE STUDIES */
+#cases{background:var(--ink);padding:120px 64px}
+.cases-intro{font-size:20px;font-weight:300;color:rgba(255,255,255,.45);max-width:580px;margin-top:20px;margin-bottom:72px;line-height:1.75}
+.cases-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:rgba(255,255,255,.04)}
+.case-card{background:var(--ink);padding:48px 40px;transition:background .35s;position:relative;overflow:hidden}
+.case-card:hover{background:rgba(255,255,255,.03)}
+.case-sector-tag{font-family:var(--ff-mono);font-size:10px;font-weight:300;letter-spacing:.2em;text-transform:uppercase;color:var(--accent-dk);margin-bottom:24px;display:flex;align-items:center;gap:10px}
+.case-sector-tag::before{content:"";width:16px;height:1px;background:var(--accent-dk)}
+.case-location{font-family:var(--ff-display);font-size:28px;font-weight:400;color:#fff;margin-bottom:8px}
+.case-title{font-size:16px;font-weight:300;color:rgba(255,255,255,.45);margin-bottom:24px;line-height:1.55}
+.case-body{font-size:15px;font-weight:300;color:rgba(255,255,255,.32);line-height:1.8}
+.case-result{margin-top:24px;padding:18px 20px;border-left:2px solid var(--accent-dk);background:rgba(196,147,58,.04)}
+.case-result-label{font-family:var(--ff-mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent-dk);margin-bottom:6px}
+.case-result-text{font-size:14px;font-weight:300;color:rgba(255,255,255,.45);line-height:1.6}
+
+/* TECHNOLOGY */
+#technology{background:var(--ivory);padding:140px 64px}
+.tech-layout{display:grid;grid-template-columns:5fr 4fr;gap:100px;margin-top:80px;align-items:start}
+.tech-intro{font-size:19px;font-weight:300;color:var(--stone);line-height:1.85;margin-bottom:56px}
+.tech-intro p+p{margin-top:20px}
+.ksc-box{background:var(--white);border:1px solid var(--parchment);padding:32px 28px;margin-bottom:32px;position:relative;overflow:hidden}
+.ksc-box::before{content:"KSC";position:absolute;right:-8px;bottom:-12px;font-family:var(--ff-display);font-size:80px;font-weight:300;color:rgba(196,147,58,.06);pointer-events:none;line-height:1}
+.ksc-label{font-family:var(--ff-mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.ksc-text{font-size:16px;font-weight:300;color:var(--stone);line-height:1.75}
+.tech-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--parchment)}
+.tech-tile{background:var(--white);padding:32px 28px;transition:background .3s}
+.tech-tile:hover{background:var(--ivory)}
+.tech-tile-icon{font-size:22px;margin-bottom:14px;display:block}
+.tech-tile-name{font-family:var(--ff-body);font-size:15px;font-weight:500;color:var(--ink);margin-bottom:8px}
+.tech-tile-desc{font-size:14px;font-weight:300;color:var(--pewter);line-height:1.7}
+.tc-card{background:var(--void);padding:56px 48px;position:relative;overflow:hidden}
+.tc-card::after{content:"TC";position:absolute;bottom:-20px;right:-10px;font-family:var(--ff-display);font-size:160px;font-weight:300;color:rgba(196,147,58,.04);line-height:1;pointer-events:none}
+.tc-eyebrow{font-family:var(--ff-mono);font-size:10px;font-weight:300;letter-spacing:.25em;text-transform:uppercase;color:var(--accent-dk);margin-bottom:20px}
+.tc-name{font-family:var(--ff-display);font-weight:300;font-size:56px;color:#fff;margin-bottom:24px;letter-spacing:-.01em}
+.tc-desc{font-size:16px;font-weight:300;color:rgba(255,255,255,.5);line-height:1.8;margin-bottom:36px}
+.tc-bullets{display:flex;flex-direction:column;gap:14px}
+.tc-bullet{display:flex;align-items:flex-start;gap:14px;font-size:15px;font-weight:300;color:rgba(255,255,255,.4);line-height:1.6}
+.tc-bullet::before{content:"";width:5px;height:5px;background:var(--accent-dk);border-radius:50%;flex-shrink:0;margin-top:8px}
+.nasa-strip{margin-top:48px;padding-top:32px;border-top:1px solid rgba(255,255,255,.06);display:flex;align-items:flex-start;gap:16px}
+.nasa-icon{font-size:24px;flex-shrink:0;opacity:.7}
+.nasa-text{font-size:14px;font-weight:300;color:rgba(255,255,255,.3);line-height:1.7}
+.nasa-text strong{display:block;font-weight:400;color:rgba(255,255,255,.6);font-size:15px;margin-bottom:4px}
+
+/* LIFE AT TERRATECH */
+#life{background:var(--white);padding:120px 64px;display:grid;grid-template-columns:1fr 1fr;gap:100px;align-items:start}
+.life-body{font-size:19px;font-weight:300;color:var(--stone);line-height:1.85;margin-top:32px}
+.life-body p+p{margin-top:20px}
+.life-cards{display:flex;flex-direction:column;gap:2px;margin-top:0}
+.life-card{background:var(--ivory);padding:28px 32px;border-left:2px solid transparent;transition:border-color .3s,background .3s}
+.life-card:hover{border-left-color:var(--accent);background:var(--white)}
+.life-card-title{font-family:var(--ff-display);font-size:20px;font-weight:500;color:var(--ink);margin-bottom:8px}
+.life-card-text{font-size:16px;font-weight:300;color:var(--pewter);line-height:1.7}
+
+/* OFFICES */
+#offices{background:var(--white);padding:140px 64px}
+.offices-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--parchment);margin-top:72px}
+.office-tile{background:var(--white);padding:44px 36px;transition:background .3s}
+.office-tile:hover{background:var(--ivory)}
+.office-flag{font-size:26px;margin-bottom:18px;display:block}
+.office-city{font-family:var(--ff-display);font-weight:500;font-size:24px;color:var(--ink);margin-bottom:4px}
+.office-role{font-family:var(--ff-mono);font-size:10px;font-weight:300;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+.office-desc{font-size:15px;font-weight:300;color:var(--pewter);line-height:1.7}
+
+/* CAREERS */
+#careers{background:var(--ivory);padding:140px 64px}
+.careers-intro{font-size:19px;font-weight:300;color:var(--stone);max-width:560px;line-height:1.8;margin-top:20px;margin-bottom:72px}
+.roles-table{width:100%;border-collapse:collapse}
+.roles-table thead tr{border-bottom:1px solid var(--ink)}
+.roles-table th{font-family:var(--ff-mono);font-size:11px;font-weight:300;letter-spacing:.18em;text-transform:uppercase;color:var(--pewter);padding:0 0 16px;text-align:left}
+.roles-table th+th{padding-left:28px}
+.roles-table tbody tr{border-bottom:1px solid var(--parchment);transition:background .2s}
+.roles-table tbody tr:hover{background:rgba(196,147,58,.04)}
+.roles-table td{padding:22px 0;font-size:15px;vertical-align:top}
+.roles-table td+td{padding-left:28px}
+.role-name{font-family:var(--ff-display);font-size:20px;font-weight:500;color:var(--ink);line-height:1.2;margin-bottom:4px}
+.role-loc{font-size:13px;font-weight:300;color:var(--pewter)}
+.role-badge{display:inline-block;font-family:var(--ff-mono);font-size:10px;font-weight:300;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-dk);border:1px solid rgba(196,147,58,.3);padding:5px 11px}
+.role-skills{font-size:15px;font-weight:300;color:var(--pewter);line-height:1.7}
+
+/* VALUES */
+#values{background:var(--void);color:#fff;padding:120px 64px}
+#values .sec-title{color:#fff;margin-bottom:64px}
+.values-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;background:rgba(255,255,255,.04)}
+.value-card{padding:48px 36px;background:var(--void)}
+.value-num{font-family:var(--ff-display);font-size:56px;font-weight:300;color:rgba(255,255,255,.05);line-height:1;margin-bottom:24px}
+.value-name{font-family:var(--ff-display);font-size:22px;font-weight:400;color:var(--accent);margin-bottom:12px}
+.value-desc{font-size:16px;font-weight:300;color:rgba(255,255,255,.42);line-height:1.75}
+
+/* PREP */
+#prep{background:var(--deep);padding:120px 64px;display:grid;grid-template-columns:1fr 1fr;gap:100px;align-items:start}
+.prep-title{font-family:var(--ff-display);font-weight:300;font-size:56px;color:#fff;line-height:1.05;margin-top:24px}
+.prep-title em{font-style:italic;color:var(--accent)}
+.prep-intro{font-size:17px;font-weight:300;color:rgba(255,255,255,.4);line-height:1.8;margin-bottom:40px}
+.prep-list{display:flex;flex-direction:column}
+.prep-item{display:flex;align-items:flex-start;gap:20px;padding:18px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+.prep-check{font-family:var(--ff-mono);font-size:11px;color:var(--accent-dk);flex-shrink:0;padding-top:2px}
+.prep-text{font-size:16px;font-weight:300;color:rgba(255,255,255,.5);line-height:1.7}
+.prep-cta{display:inline-flex;align-items:center;gap:16px;margin-top:48px;font-family:var(--ff-mono);font-size:12px;font-weight:400;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);text-decoration:none;border-bottom:1px solid var(--accent-dk);padding-bottom:4px;transition:color .25s,border-color .25s}
+.prep-cta:hover{color:var(--accent-lt);border-color:var(--accent-lt)}
+.prep-arrow{transition:transform .25s}
+.prep-cta:hover .prep-arrow{transform:translateX(6px)}
+
+/* FOOTER */
+footer{background:var(--void);padding:60px 64px;display:flex;align-items:flex-end;justify-content:space-between;border-top:1px solid rgba(255,255,255,.04)}
+.footer-brand{font-family:var(--ff-display);font-weight:300;font-size:30px;color:rgba(255,255,255,.3)}
+.footer-sub{font-family:var(--ff-mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:rgba(255,255,255,.15);margin-top:6px}
+.footer-details{text-align:right;font-family:var(--ff-mono);font-size:11px;font-weight:300;letter-spacing:.1em;color:rgba(255,255,255,.18);line-height:2}
+
+/* REVEAL */
+@keyframes fadeUp{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:translateY(0)}}
+.reveal{opacity:0;transform:translateY(32px);transition:opacity .9s ease,transform .9s ease}
+.reveal.visible{opacity:1;transform:translateY(0)}
+.rd1{transition-delay:.1s}.rd2{transition-delay:.2s}.rd3{transition-delay:.3s}.rd4{transition-delay:.4s}.rd5{transition-delay:.5s}
+
+/* ══════════════════════════════════════════
+   MODE 2 — COLOUR-BLIND SAFE
+   Replaces amber/gold with strong perceptual blue
+   Works for deuteranopia, protanopia, tritanopia
+══════════════════════════════════════════ */
+html.cb-mode{
+  --accent:#1a6fcc;--accent-lt:#3b8de0;--accent-dk:#1055a3
+}
+html.cb-mode .globe-wrap svg *{stroke:#1a6fcc!important}
+
+/* ══════════════════════════════════════════
+   MODE 3 — DYSLEXIA FRIENDLY
+   Lexend font · generous spacing · softer contrasts
+   No italics · no justified text · cream backgrounds
+══════════════════════════════════════════ */
+html.dy-mode{
+  --ff-display:"Lexend",sans-serif;
+  --ff-body:"Lexend",sans-serif;
+  --ff-mono:"Lexend",sans-serif;
+  --void:#0f0e12;--deep:#141320;--ink:#1c1a24;--stone:#3a3848;
+  --parchment:#e8e4f0;--ivory:#f2f0f8;--white:#faf9fd
+}
+html.dy-mode body{letter-spacing:.04em;word-spacing:.08em;line-height:1.9}
+html.dy-mode .sec-title{letter-spacing:.01em;line-height:1.15}
+html.dy-mode .hero-title{letter-spacing:.01em;line-height:1.05}
+html.dy-mode .hero-title em,
+html.dy-mode .sec-title em,
+html.dy-mode .about-pull p,
+html.dy-mode .prep-title em{font-style:normal;text-decoration:underline;text-decoration-color:var(--accent);text-underline-offset:6px}
+html.dy-mode .about-body,
+html.dy-mode .about-pull p,
+html.dy-mode .tech-intro,
+html.dy-mode .cases-intro,
+html.dy-mode .life-body,
+html.dy-mode .sector-text,
+html.dy-mode .tc-desc,
+html.dy-mode .prep-text,
+html.dy-mode .office-desc,
+html.dy-mode .careers-intro,
+html.dy-mode .tl-body,
+html.dy-mode .value-desc,
+html.dy-mode .case-body,
+html.dy-mode .life-card-text{font-size:110%;line-height:2;letter-spacing:.04em}
+html.dy-mode nav,
+html.dy-mode #sectors,
+html.dy-mode #values,
+html.dy-mode #prep,
+html.dy-mode #cases,
+html.dy-mode footer{background:var(--void)}
+html.dy-mode .tc-card{background:var(--deep)}
+html.dy-mode .hero-descriptor p,
+html.dy-mode .nasa-text,
+html.dy-mode .tc-bullets .tc-bullet{opacity:.85}
+html.dy-mode .roles-table td,
+html.dy-mode .roles-table th{line-height:1.9;letter-spacing:.04em}
+html.dy-mode .tl-year-badge{background:var(--deep)}
+
+/* RESPONSIVE */
+@media(max-width:960px){
+  nav{padding:22px 32px}nav.scrolled{padding:16px 32px}.nav-links{display:none}
+  #hero .hero-content{padding:0 32px 72px}.hero-stats{right:32px;bottom:72px;flex-direction:row;gap:32px}
+  #about,#technology,#prep,#life{grid-template-columns:1fr;gap:56px;padding:88px 32px}
+  #sectors,#offices,#careers,#cases,#values{padding:88px 32px}
+  .sectors-grid{grid-template-columns:1fr}.offices-grid{grid-template-columns:1fr 1fr}
+  .values-grid{grid-template-columns:1fr 1fr}.cases-grid{grid-template-columns:1fr}
+  .tech-grid{grid-template-columns:1fr}
+  footer{flex-direction:column;gap:20px;padding:48px 32px}.footer-details{text-align:left}
+  .globe-wrap{width:100vw;right:-20vw;opacity:.09}
+}
+</style>
+</head>
+<body>
+
+<button id="a11y-toggle" title="Switch accessibility mode" aria-label="Switch accessibility mode">
+  <span class="toggle-dot"></span>
+  <span id="a11y-label">Standard</span>
+  <span id="a11y-mode-icons">
+    <span class="mode-pip active" id="pip-0" title="Standard"></span>
+    <span class="mode-pip" id="pip-1" title="Colour-blind safe"></span>
+    <span class="mode-pip" id="pip-2" title="Dyslexia friendly"></span>
+  </span>
+</button>
+
+<div class="cursor" id="cursor"></div>
+<div class="cursor-ring" id="cursor-ring"></div>
+
+<nav id="nav">
+  <a href="#" class="nav-brand">
+    <span class="nav-wordmark">TerraTech</span>
+    <span class="nav-sub">Geospatial</span>
+  </a>
+  <ul class="nav-links">
+    <li><a href="#about">About</a></li>
+    <li><a href="#sectors">Sectors</a></li>
+    <li><a href="#technology">Technology</a></li>
+    <li><a href="#offices">Offices</a></li>
+    <li><a href="#careers">Careers</a></li>
+  </ul>
+  <a href="https://sikorskii-jobi.hf.space/" target="_blank" rel="noopener noreferrer" class="nav-apply">Apply &rarr;</a>
+</nav>
+
+<section id="hero">
+  <div class="globe-wrap">
+    <svg viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="200" cy="200" r="190" stroke="#c4933a" stroke-width="0.5"/>
+      <ellipse cx="200" cy="200" rx="190" ry="58" stroke="#c4933a" stroke-width="0.4"/>
+      <ellipse cx="200" cy="200" rx="190" ry="108" stroke="#c4933a" stroke-width="0.35"/>
+      <ellipse cx="200" cy="200" rx="190" ry="158" stroke="#c4933a" stroke-width="0.3"/>
+      <line x1="200" y1="10" x2="200" y2="390" stroke="#c4933a" stroke-width="0.4"/>
+      <line x1="10" y1="200" x2="390" y2="200" stroke="#c4933a" stroke-width="0.4"/>
+      <line x1="55" y1="55" x2="345" y2="345" stroke="#c4933a" stroke-width="0.25"/>
+      <line x1="345" y1="55" x2="55" y2="345" stroke="#c4933a" stroke-width="0.25"/>
+      <circle cx="200" cy="200" r="10" stroke="#c4933a" stroke-width="0.6"/>
+      <circle cx="200" cy="200" r="40" stroke="#c4933a" stroke-width="0.3" stroke-dasharray="4 6"/>
+      <circle cx="200" cy="200" r="80" stroke="#c4933a" stroke-width="0.3" stroke-dasharray="4 8"/>
+      <circle cx="200" cy="200" r="130" stroke="#c4933a" stroke-width="0.25" stroke-dasharray="3 9"/>
+    </svg>
+  </div>
+  <span class="coord-label coord-1">28&deg;35&prime;N &nbsp; 80&deg;39&prime;W</span>
+  <span class="coord-label coord-2">Est. 1991 &mdash; Geospatial Intelligence</span>
+  <span class="coord-label coord-3">KSC Corridor &mdash; Merritt Island FL</span>
+  <div class="hero-content">
+    <div class="hero-coords">28&deg;35&prime;N &nbsp;&nbsp; 80&deg;39&prime;W &nbsp;&mdash;&nbsp; Merritt Island, Florida</div>
+    <h1 class="hero-title">Measuring<br>the <em>world.</em><br><span class="line-indent">From orbit.</span></h1>
+    <div class="hero-descriptor">
+      <div class="hero-descriptor-rule"></div>
+      <p>Precision geodetic surveys, satellite remote sensing, and spatial intelligence for infrastructure, energy, and environment &mdash; since 1991.</p>
+    </div>
+  </div>
+  <div class="hero-stats">
+    <div><div class="hero-stat-num">220</div><div class="hero-stat-label">Specialists</div></div>
+    <div><div class="hero-stat-num">6</div><div class="hero-stat-label">Offices</div></div>
+    <div><div class="hero-stat-num">30+</div><div class="hero-stat-label">Years</div></div>
+  </div>
+  <div class="scroll-hint"><span>Scroll</span><div class="scroll-line"></div></div>
+</section>
+
+<!-- ABOUT -->
+<section id="about">
+  <div class="about-left reveal">
+    <div class="sec-mark"><div class="sec-mark-line"></div><span class="sec-mark-text">About TerraTech</span></div>
+    <h2 class="sec-title">Traditional<br>precision.<br><em>Modern</em> intelligence.</h2>
+    <div class="about-body">
+      <p>TerraTech was founded in 1991 by a team of geodetic engineers who believed accurate spatial data was the foundation of every serious infrastructure decision. For the first decade we did exactly that &mdash; land surveying, control networks, and topographic mapping across Florida and the Gulf Coast.</p>
+      <p>Then something changed. The instruments got smarter, the satellites got cheaper, the data got bigger. We chose to modernise rather than stay comfortable. Today our work combines the precision of classical geodesy with orbital-scale remote sensing &mdash; a combination very few firms offer end-to-end.</p>
+    </div>
+    <div class="about-pull">
+      <p>&ldquo;We still send people into the field with total stations. We also receive satellite imagery from 600&nbsp;km altitude. Both are essential. Neither is enough alone.&rdquo;</p>
+    </div>
+  </div>
+  <div class="about-right reveal rd2">
+    <div class="timeline">
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-connector"></div>
+        <div class="tl-year-badge"><span class="tl-year-text">1991</span><span class="tl-era">Year&nbsp;one</span></div>
+        <div class="tl-title">Founded in Florida</div>
+        <div class="tl-body">Land surveying and geodetic control for Gulf Coast infrastructure. Three engineers, one office near the Space Coast.</div>
+        <span class="tl-tag">Classical geodesy era</span>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-connector"></div>
+        <div class="tl-year-badge"><span class="tl-year-text">1999</span><span class="tl-era">Expansion</span></div>
+        <div class="tl-title">GPS Survey Division</div>
+        <div class="tl-body">Adopted differential GPS as primary GNSS technique. First Latin American contracts. Staff grows to 40.</div>
+        <span class="tl-tag">GNSS transition</span>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-connector"></div>
+        <div class="tl-year-badge"><span class="tl-year-text">2007</span><span class="tl-era">Europe</span></div>
+        <div class="tl-title">GIS Practice &amp; Madrid Office</div>
+        <div class="tl-body">Spatial analysis and cartographic services added. First European office opens in Madrid. 80 staff globally.</div>
+        <span class="tl-tag">GIS era begins</span>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-connector"></div>
+        <div class="tl-year-badge"><span class="tl-year-text">2014</span><span class="tl-era">Orbit</span></div>
+        <div class="tl-title">Remote Sensing Division &amp; NASA Partnership</div>
+        <div class="tl-body">LiDAR and satellite data processing formally launched. NASA Applied Sciences data-sharing agreement signed. Four offices.</div>
+        <span class="tl-tag">Space-based data</span>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-connector"></div>
+        <div class="tl-year-badge"><span class="tl-year-text">2019</span><span class="tl-era">Platform</span></div>
+        <div class="tl-title">TerraCloud Launched</div>
+        <div class="tl-body">Proprietary spatial intelligence platform replaces PDF reports with live client dashboards. Nairobi and Rotterdam offices open.</div>
+        <span class="tl-tag">SaaS &amp; live data</span>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-connector"></div>
+        <div class="tl-year-badge"><span class="tl-year-text">2024</span><span class="tl-era">Present</span></div>
+        <div class="tl-title">Six Offices, 220 Specialists</div>
+        <div class="tl-body">Active on five continents. Graduate programme in second cohort. TerraCloud processing 14 TB of spatial data monthly.</div>
+        <span class="tl-tag">Global operations</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTORS -->
+<section id="sectors">
+  <div class="reveal">
+    <div class="sec-mark"><div class="sec-mark-line"></div><span class="sec-mark-text">What We Do</span></div>
+    <h2 class="sec-title light">Three sectors.<br>One spatial discipline.</h2>
+  </div>
+  <div class="sectors-grid">
+    <div class="sector-card reveal rd1">
+      <div class="sector-num">Sector 01</div>
+      <div class="sector-heading">Infrastructure &amp;<br>Civil Engineering</div>
+      <div class="sector-text">From initial site investigation to post-construction verification, we provide the spatial foundation for large-scale engineering projects.</div>
+      <div class="sector-list">
+        <div class="sector-item">Geodetic control network establishment</div>
+        <div class="sector-item">Topographic and bathymetric surveys</div>
+        <div class="sector-item">Construction stakeout and as-built documentation</div>
+        <div class="sector-item">Bridge and dam deformation monitoring</div>
+        <div class="sector-item">Pipeline corridor mapping</div>
+      </div>
+    </div>
+    <div class="sector-card reveal rd2">
+      <div class="sector-num">Sector 02</div>
+      <div class="sector-heading">Environmental<br>Monitoring &amp; Land Use</div>
+      <div class="sector-text">Long-term spatial intelligence for the organisations responsible for managing and protecting land, coasts, and natural systems.</div>
+      <div class="sector-list">
+        <div class="sector-item">Multi-temporal satellite change detection</div>
+        <div class="sector-item">Coastal erosion and sea-level monitoring</div>
+        <div class="sector-item">Habitat classification from LiDAR data</div>
+        <div class="sector-item">Carbon stock estimation for ESG reporting</div>
+        <div class="sector-item">Post-disaster damage assessment</div>
+      </div>
+    </div>
+    <div class="sector-card reveal rd3">
+      <div class="sector-num">Sector 03</div>
+      <div class="sector-heading">Mining, Energy &amp;<br>Natural Resources</div>
+      <div class="sector-text">Precision spatial data for the industries that demand the highest accuracy and have the least tolerance for error.</div>
+      <div class="sector-list">
+        <div class="sector-item">Pre-exploration terrain modelling</div>
+        <div class="sector-item">Mine volumetric surveys, sub-centimetre accuracy</div>
+        <div class="sector-item">Subsidence monitoring at extraction sites</div>
+        <div class="sector-item">Pipeline and corridor route optimisation</div>
+        <div class="sector-item">Offshore platform positioning</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CASE STUDIES -->
+<section id="cases">
+  <div class="reveal">
+    <div class="sec-mark"><div class="sec-mark-line"></div><span class="sec-mark-text">Project Highlights</span></div>
+    <h2 class="sec-title light">Work from the field.</h2>
+    <p class="cases-intro">Three examples of what TerraTech actually does in practice &mdash; one from each sector. These are the kinds of projects you may be working on.</p>
+  </div>
+  <div class="cases-grid">
+    <div class="case-card reveal rd1">
+      <div class="case-sector-tag">Sector 01 &mdash; Infrastructure</div>
+      <div class="case-location">Bogot&aacute;, Colombia</div>
+      <div class="case-title">Highway viaduct deformation monitoring, Bogot&aacute; ring road expansion</div>
+      <div class="case-body">TerraTech Madrid and Bogot&aacute; offices established a geodetic control network across a 47-km highway corridor. Bi-annual drone LiDAR surveys track millimetre-level settlement in five bridge structures over a five-year construction and consolidation period. Data feeds directly into the client&rsquo;s structural engineering platform via TerraCloud API.</div>
+      <div class="case-result">
+        <div class="case-result-label">Result</div>
+        <div class="case-result-text">Detected 12&nbsp;mm of unexpected differential settlement in one pier foundation three months before the client&rsquo;s own inspection schedule. Structural intervention carried out proactively.</div>
+      </div>
+    </div>
+    <div class="case-card reveal rd2">
+      <div class="case-sector-tag">Sector 02 &mdash; Environmental</div>
+      <div class="case-location">Nairobi, Kenya</div>
+      <div class="case-title">Land-cover change monitoring, East African dry forest corridor</div>
+      <div class="case-body">TerraTech Nairobi processes a 10-year Sentinel-2 time series across a 2,400&nbsp;km&sup2; dry forest corridor on behalf of a conservation finance fund. Monthly change detection runs on TerraCloud. When deforestation events are detected, alerts go to both the client and local rangers within 48 hours. Carbon stock estimates feed into REDD+ reporting.</div>
+      <div class="case-result">
+        <div class="case-result-label">Result</div>
+        <div class="case-result-text">Early detection rate for illegal clearing events improved from quarterly reviews to 48-hour automated alerts. Annual carbon stock variance reduced to &plusmn;3%.</div>
+      </div>
+    </div>
+    <div class="case-card reveal rd3">
+      <div class="case-sector-tag">Sector 03 &mdash; Mining</div>
+      <div class="case-location">Perth, Australia</div>
+      <div class="case-title">Open-pit volume reconciliation, iron ore mine, Pilbara region</div>
+      <div class="case-body">TerraTech Perth conducts monthly drone LiDAR surveys across a 340-hectare open-pit iron ore mine. Sub-centimetre digital terrain models are compared epoch-to-epoch to produce extraction volume reconciliation reports. Results are overlaid with blast block models to verify that declared tonnages match spatial reality.</div>
+      <div class="case-result">
+        <div class="case-result-label">Result</div>
+        <div class="case-result-text">Volume reconciliation accuracy of &plusmn;0.4% against plant weighbridge data. Replaced a manual total-station survey process that took 3 days per cycle with a 6-hour drone operation.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TECHNOLOGY -->
+<section id="technology">
+  <div class="reveal">
+    <div class="sec-mark"><div class="sec-mark-line"></div><span class="sec-mark-text">Technology</span></div>
+    <h2 class="sec-title">From orbit<br>to <em>ground truth.</em></h2>
+  </div>
+  <div class="tech-layout">
+    <div>
+      <div class="tech-intro reveal rd1">
+        <p>Our position near Kennedy Space Center is not a coincidence. Commercial satellite operators, NASA ground stations, and remote sensing data infrastructure cluster around the KSC corridor. Physical proximity means faster data pipelines, easier calibration validation, and direct access to ground-truth sites used for satellite sensor validation.</p>
+        <p>TerraTech has maintained a data-sharing agreement with NASA Applied Sciences since 2014 and works with Maxar, Planet Labs, and Airbus Defence &amp; Space to access imagery for any project on earth.</p>
+      </div>
+      <div class="ksc-box reveal rd2">
+        <div class="ksc-label">Why Cape Canaveral matters operationally</div>
+        <div class="ksc-text">Satellite operators maintain ground receiving stations near launch sites to reduce latency. Being adjacent to KSC gives TerraTech access to tasked imagery within hours of acquisition &mdash; not days. We also participate in NASA&rsquo;s Cal/Val programmes, which means our ground surveys are used to validate the accuracy of orbital sensors. That calibration relationship gives us preferential data access and early access to new sensor platforms before commercial release.</div>
+      </div>
+      <div class="tech-grid reveal rd3">
+        <div class="tech-tile">
+          <span class="tech-tile-icon">&#128752;</span>
+          <div class="tech-tile-name">Satellite Remote Sensing</div>
+          <div class="tech-tile-desc">Maxar WorldView, Planet SkySat, Sentinel-2, Landsat. Archive and tasked acquisition worldwide.</div>
+        </div>
+        <div class="tech-tile">
+          <span class="tech-tile-icon">&#9992;</span>
+          <div class="tech-tile-name">Airborne &amp; Drone LiDAR</div>
+          <div class="tech-tile-desc">Point cloud acquisition for sub-decimetre DTM and DSM generation at project scale.</div>
+        </div>
+        <div class="tech-tile">
+          <span class="tech-tile-icon">&#128225;</span>
+          <div class="tech-tile-name">GNSS &amp; Geodetic Survey</div>
+          <div class="tech-tile-desc">High-precision control networks using GNSS, total stations, and inertial systems.</div>
+        </div>
+        <div class="tech-tile">
+          <span class="tech-tile-icon">&#128506;</span>
+          <div class="tech-tile-name">GIS &amp; Spatial Analysis</div>
+          <div class="tech-tile-desc">Open-source stack: QGIS, GDAL, PostGIS, plus proprietary cloud processing pipelines.</div>
+        </div>
+      </div>
+    </div>
+    <div class="reveal rd4">
+      <div class="tc-card">
+        <div class="tc-eyebrow">Proprietary Platform</div>
+        <div class="tc-name">TerraCloud</div>
+        <div class="tc-desc">Launched in 2019, TerraCloud replaces static PDF deliverables with live spatial intelligence. Clients monitor sites in real time and receive automated alerts when change is detected.</div>
+        <div class="tc-bullets">
+          <div class="tc-bullet">Live change detection alerts from satellite time series</div>
+          <div class="tc-bullet">Interactive 3D point cloud viewer for LiDAR datasets</div>
+          <div class="tc-bullet">Multi-epoch volume analysis for mining operations</div>
+          <div class="tc-bullet">Client API access for GIS and engineering systems</div>
+          <div class="tc-bullet">Built on PostGIS, GDAL, and open standards</div>
+        </div>
+        <div class="nasa-strip">
+          <div class="nasa-icon">&#128640;</div>
+          <div class="nasa-text"><strong>NASA Applied Sciences Partnership</strong>Data-sharing agreement since 2014. TerraTech participates in NASA&rsquo;s Commercial Smallsat Data Acquisition programme and Cal/Val ground-truth surveys.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- LIFE AT TERRATECH -->
+<section id="life">
+  <div class="reveal">
+    <div class="sec-mark"><div class="sec-mark-line"></div><span class="sec-mark-text">Life at TerraTech</span></div>
+    <h2 class="sec-title">What it actually<br>feels like to <em>work here.</em></h2>
+    <div class="life-body">
+      <p>TerraTech is not a typical consultancy. Most senior staff joined as graduates and have been here for over a decade &mdash; that tells you something about the culture. Teams are small (4&ndash;8 people per project), flat in structure, and technically serious. A junior surveyor who disagrees with a methodology choice is expected to say so &mdash; with evidence.</p>
+      <p>Field travel is real. If you are in the Perth office working on mining contracts, expect to spend time in the Pilbara. If you are in Madrid on an infrastructure project, you may be in Colombia the following month. This is not fine print &mdash; it is central to the job and one of the main reasons people choose TerraTech over a desk-bound GIS role.</p>
+    </div>
+  </div>
+  <div class="life-cards reveal rd2">
+    <div class="life-card">
+      <div class="life-card-title">Team sizes</div>
+      <div class="life-card-text">Projects run with 4&ndash;8 people. One named Project Geodesist, one Project Manager, the rest technical specialists. You know the project end-to-end rather than owning one small step.</div>
+    </div>
+    <div class="life-card">
+      <div class="life-card-title">Graduate Programme</div>
+      <div class="life-card-text">18-month rotation across field survey, GIS analysis, and remote sensing teams. You graduate with a broad technical foundation, then specialise. Mentored by a Senior Geodesist throughout.</div>
+    </div>
+    <div class="life-card">
+      <div class="life-card-title">Field travel</div>
+      <div class="life-card-text">Significant. Varies by office and role. Perth mining contracts can mean 6&ndash;8 weeks in the Pilbara per year. Madrid infrastructure projects involve regular travel to project sites across the EU and Latin America.</div>
+    </div>
+    <div class="life-card">
+      <div class="life-card-title">Open-source culture</div>
+      <div class="life-card-text">We use QGIS, GDAL, PostGIS, and Python as standard. We contribute to open datasets. You will not be locked into proprietary tools or writing reports no one reads. TerraCloud is where the work lives.</div>
+    </div>
+  </div>
+</section>
+
+<!-- OFFICES -->
+<section id="offices">
+  <div class="reveal">
+    <div class="sec-mark"><div class="sec-mark-line"></div><span class="sec-mark-text">Global Presence</span></div>
+    <h2 class="sec-title">Six offices.<br>Five continents.</h2>
+  </div>
+  <div class="offices-grid">
+    <div class="office-tile reveal rd1"><span class="office-flag">&#127482;&#127480;</span><div class="office-city">Merritt Island</div><div class="office-role">Global Headquarters</div><div class="office-desc">Remote sensing division, TerraCloud development team, executive leadership. Adjacent to Kennedy Space Center.</div></div>
+    <div class="office-tile reveal rd2"><span class="office-flag">&#127466;&#127480;</span><div class="office-city">Madrid</div><div class="office-role">European Operations</div><div class="office-desc">Infrastructure contracts across the EU. Primary hub for European client delivery and project management.</div></div>
+    <div class="office-tile reveal rd3"><span class="office-flag">&#127464;&#127476;</span><div class="office-city">Bogot&aacute;</div><div class="office-role">Latin America Hub</div><div class="office-desc">Mining and energy work across Colombia, Peru, and Chile. Environmental monitoring programmes.</div></div>
+    <div class="office-tile reveal rd1"><span class="office-flag">&#127462;&#127482;</span><div class="office-city">Perth</div><div class="office-role">Asia-Pacific Mining</div><div class="office-desc">Mining volumetric surveys and subsidence monitoring. Serves Australian and Southeast Asian mining clients.</div></div>
+    <div class="office-tile reveal rd2"><span class="office-flag">&#127472;&#127466;</span><div class="office-city">Nairobi</div><div class="office-role">Africa Operations</div><div class="office-desc">Environmental monitoring, land-use change detection, and infrastructure surveys across Sub-Saharan Africa.</div></div>
+    <div class="office-tile reveal rd3"><span class="office-flag">&#127475;&#127473;</span><div class="office-city">Rotterdam</div><div class="office-role">Offshore &amp; Coastal</div><div class="office-desc">Offshore platform positioning, port surveys, coastal erosion monitoring. North Sea and Baltic region.</div></div>
+  </div>
+</section>
+
+<!-- CAREERS -->
+<section id="careers">
+  <div class="reveal">
+    <div class="sec-mark"><div class="sec-mark-line"></div><span class="sec-mark-text">Open Positions</span></div>
+    <h2 class="sec-title">We hire people<br>who have been<br>in the <em>field.</em></h2>
+  </div>
+  <p class="careers-intro reveal rd1">Most of our senior staff joined straight from university. We run a formal Graduate Programme &mdash; 18 months rotating across field survey, GIS, and remote sensing teams.</p>
+  <table class="roles-table reveal rd2">
+    <thead><tr><th>Role</th><th>Level</th><th>Core Skills</th></tr></thead>
+    <tbody>
+      <tr><td><div class="role-name">Junior Geodetic Surveyor</div><div class="role-loc">Madrid / Merritt Island</div></td><td><div class="role-badge">Graduate</div></td><td><div class="role-skills">GNSS, total station, control networks, adjustment software</div></td></tr>
+      <tr><td><div class="role-name">GIS Analyst</div><div class="role-loc">Madrid / Nairobi</div></td><td><div class="role-badge">Graduate</div></td><td><div class="role-skills">QGIS, PostGIS, GDAL, spatial analysis, cartographic output</div></td></tr>
+      <tr><td><div class="role-name">Remote Sensing Analyst</div><div class="role-loc">Merritt Island</div></td><td><div class="role-badge">Graduate / Mid</div></td><td><div class="role-skills">Satellite image processing, change detection, Python/R, Sentinel</div></td></tr>
+      <tr><td><div class="role-name">Photogrammetry Technician</div><div class="role-loc">Perth / Bogot&aacute;</div></td><td><div class="role-badge">Graduate</div></td><td><div class="role-skills">UAV operations, Agisoft Metashape, point cloud processing, DTM</div></td></tr>
+      <tr><td><div class="role-name">Spatial Data Engineer</div><div class="role-loc">Merritt Island</div></td><td><div class="role-badge">Mid-level</div></td><td><div class="role-skills">PostGIS, Python, ETL pipelines, TerraCloud API, cloud infrastructure</div></td></tr>
+      <tr><td><div class="role-name">Environmental Monitoring Specialist</div><div class="role-loc">Nairobi / Rotterdam</div></td><td><div class="role-badge">Mid-level</div></td><td><div class="role-skills">Satellite time series, land-cover classification, ESG reporting</div></td></tr>
+      <tr><td><div class="role-name">Project Geodesist</div><div class="role-loc">Any office</div></td><td><div class="role-badge">Senior</div></td><td><div class="role-skills">Full project delivery, client management, technical QA, team leadership</div></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- VALUES -->
+<section id="values">
+  <div class="reveal">
+    <div class="sec-mark"><div class="sec-mark-line"></div><span class="sec-mark-text">How We Work</span></div>
+    <h2 class="sec-title light">Four things we<br>do not compromise on.</h2>
+  </div>
+  <div class="values-grid">
+    <div class="value-card reveal rd1"><div class="value-num">01</div><div class="value-name">Precision</div><div class="value-desc">In measurement and in communication. Vague reports are not acceptable. Every number has a source. Every conclusion has evidence.</div></div>
+    <div class="value-card reveal rd2"><div class="value-num">02</div><div class="value-name">Field First</div><div class="value-desc">Decisions are made by people who have been on the ground. Junior surveyors go into the field early and on purpose. Desk-only careers are not what we offer.</div></div>
+    <div class="value-card reveal rd3"><div class="value-num">03</div><div class="value-name">Open Data</div><div class="value-desc">Early adopters of open-source GIS. We contribute to open datasets and believe spatial data infrastructure should be public where possible.</div></div>
+    <div class="value-card reveal rd4"><div class="value-num">04</div><div class="value-name">Long View</div><div class="value-desc">Most major clients have been with us for 10+ years. We build relationships, not transactions. Monitoring projects run for decades.</div></div>
+  </div>
+</section>
+
+<!-- PREP -->
+<section id="prep">
+  <div class="reveal">
+    <div class="sec-mark"><div class="sec-mark-line"></div><span class="sec-mark-text">Interview Preparation</span></div>
+    <div class="prep-title">Before you<br>speak to <em>Alex.</em></div>
+  </div>
+  <div class="reveal rd2">
+    <p class="prep-intro">Your interviewer is Alex Chen, Senior HR Manager. He has conducted over 400 interviews. He can tell immediately whether you have read this page or not. Here is what research actually looks like in the room:</p>
+    <div class="prep-list">
+      <div class="prep-item"><span class="prep-check">01</span><div class="prep-text">Know which of the three sectors interests you &mdash; and have a genuine reason, not a generic one. &ldquo;Environmental monitoring because of climate reporting requirements&rdquo; is specific. &ldquo;I like geospatial work&rdquo; is not.</div></div>
+      <div class="prep-item"><span class="prep-check">02</span><div class="prep-text">Understand what TerraCloud does and why it changes the client experience. The answer is: live monitoring vs. periodic PDF reports. Know why that matters to a mining operator or environmental fund.</div></div>
+      <div class="prep-item"><span class="prep-check">03</span><div class="prep-text">Know why the Cape Canaveral location matters operationally. The answer is: proximity to satellite ground stations, faster data pipelines, and participation in NASA calibration/validation programmes.</div></div>
+      <div class="prep-item"><span class="prep-check">04</span><div class="prep-text">Have one specific project or technical experience ready as a story. Not &ldquo;I have done field surveys.&rdquo; A specific situation, what you did, and what the outcome was.</div></div>
+      <div class="prep-item"><span class="prep-check">05</span><div class="prep-text">Be ready to name one skill you are actively developing and what you are concretely doing about it. &ldquo;I am learning Python for spatial analysis and I am currently working through a QGIS automation project&rdquo; is the level of specificity Alex expects.</div></div>
+    </div>
+    <a href="https://sikorskii-jobi.hf.space/" target="_blank" rel="noopener noreferrer" class="prep-cta">Begin your interview <span class="prep-arrow">&rarr;</span></a>
+  </div>
+</section>
+
+<footer>
+  <div>
+    <div class="footer-brand">TerraTech</div>
+    <div class="footer-sub">Geospatial Solutions &mdash; Est. 1991</div>
+  </div>
+  <div class="footer-details">
+    Merritt Island, Florida &middot; Adjacent to Kennedy Space Center<br>
+    Madrid &middot; Bogot&aacute; &middot; Perth &middot; Nairobi &middot; Rotterdam<br>
+    terratech-geo.com &middot; careers@terratech-geo.com
+  </div>
+</footer>
+
+<script>
+// Cursor
+const cursor=document.getElementById("cursor"),ring=document.getElementById("cursor-ring");
+let mx=0,my=0,rx=0,ry=0;
+document.addEventListener("mousemove",e=>{mx=e.clientX;my=e.clientY;cursor.style.left=mx+"px";cursor.style.top=my+"px"});
+(function anim(){rx+=(mx-rx)*.12;ry+=(my-ry)*.12;ring.style.left=rx+"px";ring.style.top=ry+"px";requestAnimationFrame(anim)})();
+document.querySelectorAll("a,button").forEach(el=>{
+  el.addEventListener("mouseenter",()=>{cursor.style.width="14px";cursor.style.height="14px";ring.style.width="50px";ring.style.height="50px";ring.style.opacity=".8"});
+  el.addEventListener("mouseleave",()=>{cursor.style.width="9px";cursor.style.height="9px";ring.style.width="34px";ring.style.height="34px";ring.style.opacity=".5"});
+});
+
+// Nav scroll
+const nav=document.getElementById("nav");
+window.addEventListener("scroll",()=>nav.classList.toggle("scrolled",scrollY>60));
+
+// Scroll reveal
+const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){e.target.classList.add("visible");obs.unobserve(e.target)}})},{threshold:.07});
+document.querySelectorAll(".reveal").forEach(el=>obs.observe(el));
+
+// Three-mode accessibility toggle
+// Mode 0: Standard (gold)   Mode 1: CB-safe (blue)   Mode 2: Dyslexia-friendly
+const modes=[
+  {label:"Standard", classes:[]},
+  {label:"CB Safe",  classes:["cb-mode"]},
+  {label:"Dyslexic", classes:["dy-mode"]}
+];
+let currentMode=0;
+const btn=document.getElementById("a11y-toggle");
+const lbl=document.getElementById("a11y-label");
+const pips=document.querySelectorAll(".mode-pip");
+
+function applyMode(i){
+  document.documentElement.classList.remove("cb-mode","dy-mode");
+  modes[i].classes.forEach(c=>document.documentElement.classList.add(c));
+  lbl.textContent=modes[i].label;
+  pips.forEach((p,j)=>p.classList.toggle("active",j===i));
+  btn.setAttribute("aria-pressed",i>0?"true":"false");
+}
+btn.addEventListener("click",()=>{currentMode=(currentMode+1)%3;applyMode(currentMode)});
+</script>
+</body>
+</html>

@@ -4,9 +4,20 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 import app as app_module
+
+
+@pytest.fixture(autouse=True)
+def isolate_attempt_store(tmp_path, monkeypatch):
+    monkeypatch.setattr(app_module, "ATTEMPT_STORE_PATH", tmp_path / "attempts_store.json")
+    app_module.ATTEMPT_STORE_CACHE.clear()
+    app_module.ATTEMPT_STORE_LOADED = False
+    yield
+    app_module.ATTEMPT_STORE_CACHE.clear()
+    app_module.ATTEMPT_STORE_LOADED = False
 
 
 def test_questions_endpoint_returns_seven_items() -> None:
@@ -443,10 +454,10 @@ def test_signed_report_package_can_be_verified(monkeypatch) -> None:
     assert rejected.json()["valid"] is False
 
 
-def test_final_attempt_email_status_queued_when_configured(monkeypatch) -> None:
+def test_final_attempt_email_status_sent_when_configured(monkeypatch) -> None:
     monkeypatch.setattr(app_module, "get_openai_client", lambda: _fake_eval_openai_client())
     monkeypatch.setattr(app_module, "email_delivery_configured", lambda: True)
-    monkeypatch.setattr(app_module, "send_final_report_email", lambda *args, **kwargs: None)
+    monkeypatch.setattr(app_module, "send_final_report_email", lambda *args, **kwargs: (True, None))
 
     client = TestClient(app_module.create_app())
     payload = _evaluate_payload(student_name="Ana", role_name="GIS Analyst")
@@ -458,4 +469,4 @@ def test_final_attempt_email_status_queued_when_configured(monkeypatch) -> None:
     assert third.status_code == 200
     body = third.json()
     assert body["attempt"]["attempt_number"] == 3
-    assert body["final_report_email_status"] == "queued"
+    assert body["final_report_email_status"] == "sent"
