@@ -48,7 +48,7 @@ const CLOSING_PROMPT =
   "Thank you. That's all my questions for today. Do you have anything you'd like to ask me about the role or the company?";
 
 const OPENING_TEMPLATE =
-  "Good afternoon, {name}. Thank you for making time today. I'm Alex Chen — I manage HR here at NovaTech. We have about 12 minutes together, so let's get started.";
+  "Good afternoon, {name}. Thank you for making time today. I'm Alex Chen — I manage HR here at TerraTech Geospatial Solutions. We have about 12 minutes together, so let's get started.";
 
 const state = {
   phase: "setup",
@@ -2011,7 +2011,7 @@ async function finishInterview(reason = "completed") {
     ui.reportStudentName.textContent = state.studentName || "Candidate";
   }
   if (ui.reportMeta) {
-    ui.reportMeta.textContent = `${state.roleName || "Role"} · NovaTech Solutions · ${dateStr} · ${formatReportDuration(durationSeconds)}`;
+    ui.reportMeta.textContent = `${state.roleName || "Role"} · TerraTech Geospatial Solutions · ${dateStr} · ${formatReportDuration(durationSeconds)}`;
   }
 
   try {

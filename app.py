@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("novatech-interview")
+logger = logging.getLogger("terratech-interview")
 
 MAX_HISTORY_TURNS = 60
 MAX_AUDIO_BYTES = 10 * 1024 * 1024
@@ -640,7 +640,7 @@ def apply_incomplete_interview_caps(
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="NovaTech Interview Simulator", version="1.0.0")
+    app = FastAPI(title="TerraTech Geospatial Interview Simulator", version="1.0.0")
     questions_cache: list[str] = []
 
     app.add_middleware(
