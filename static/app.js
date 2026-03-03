@@ -165,6 +165,7 @@ let micTestLastSpeechAt = 0;
 let serverTtsAudio = null;
 let serverTtsUrl = "";
 let serverAudioUnlocked = false;
+let lastTtsErrorCode = "";
 let bargeInRaf = null;
 let bargeStartAt = 0;
 let bargeFrameAt = 0;
@@ -627,9 +628,11 @@ async function recordMicSample() {
 
 async function playServerTts(text, onStart = null) {
   if (!state.serverTtsAvailable) {
+    lastTtsErrorCode = "DISABLED";
     return false;
   }
   try {
+    lastTtsErrorCode = "";
     const startedAt = performance.now();
     const response = await fetch("/tts", {
       method: "POST",
@@ -638,12 +641,18 @@ async function playServerTts(text, onStart = null) {
     });
     if (!response.ok) {
       if (response.status === 401) {
+        lastTtsErrorCode = "PIN_REQUIRED";
         handlePinRequired();
         return false;
       }
+      lastTtsErrorCode = `HTTP_${response.status}`;
       return false;
     }
     const blob = await response.blob();
+    if (!blob || blob.size === 0) {
+      lastTtsErrorCode = "EMPTY_AUDIO";
+      return false;
+    }
     lastTtsMs = Math.round(performance.now() - startedAt);
     stopServerTtsPlayback();
     serverTtsUrl = URL.createObjectURL(blob);
@@ -674,6 +683,7 @@ async function playServerTts(text, onStart = null) {
       }
     });
   } catch (_error) {
+    lastTtsErrorCode = "NETWORK";
     return false;
   }
 }
@@ -689,6 +699,24 @@ async function runAudioTest() {
   }
   if (ui.audioTestBtn) {
     ui.audioTestBtn.disabled = true;
+  }
+  if (state.pinRequired && !state.pinUnlocked) {
+    const pin = ui.pinCode ? ui.pinCode.value.trim() : "";
+    if (!pin) {
+      setAudioTestStatus("Enter class PIN first, then run Audio Test.");
+      if (ui.audioTestBtn) {
+        ui.audioTestBtn.disabled = false;
+      }
+      return;
+    }
+    const unlocked = await tryUnlockPin(pin);
+    if (!unlocked) {
+      setAudioTestStatus("PIN check failed. Enter the correct class PIN.");
+      if (ui.audioTestBtn) {
+        ui.audioTestBtn.disabled = false;
+      }
+      return;
+    }
   }
   unlockAudioOutput(true);
   await unlockServerAudioOutput(true);
@@ -709,7 +737,11 @@ async function runAudioTest() {
       }
       return;
     }
-    setAudioTestStatus("Server voice failed. Check network/API key or server TTS config.");
+    if (lastTtsErrorCode === "PIN_REQUIRED") {
+      setAudioTestStatus("PIN required for server voice. Enter PIN and try again.");
+    } else {
+      setAudioTestStatus("Server voice failed. Check network/API key or server TTS config.");
+    }
     if (ui.audioTestBtn) {
       ui.audioTestBtn.disabled = false;
     }
@@ -1209,7 +1241,11 @@ async function speak(text) {
       responsePending = false;
     }
     if (state.serverTtsAvailable) {
-      setStatus("Server voice failed. Check network/API key or server TTS config.");
+      if (lastTtsErrorCode === "PIN_REQUIRED") {
+        setStatus("Enter class PIN to enable server voice.");
+      } else {
+        setStatus("Server voice failed. Check network/API key or server TTS config.");
+      }
     } else {
       setStatus("Audio output failed. Click Replay to hear Alex.");
     }
