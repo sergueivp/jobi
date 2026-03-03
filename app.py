@@ -27,6 +27,26 @@ from pydantic import BaseModel, ConfigDict, Field
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("terratech-interview")
 
+
+BASE_DIR = Path(__file__).resolve().parent
+
+
+def load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        os.environ.setdefault(key, value)
+
+
+# Load local .env before reading env-based constants.
+load_env_file(BASE_DIR / ".env")
+
 MAX_HISTORY_TURNS = 60
 MAX_AUDIO_BYTES = 10 * 1024 * 1024
 DEFAULT_CHAT_MODEL = os.getenv("MODEL_CHAT", "gpt-4o")
@@ -208,7 +228,6 @@ class Paths:
     index_html: Path
 
 
-BASE_DIR = Path(__file__).resolve().parent
 PROMPTS_DIR = Path(os.getenv("PROMPTS_DIR", BASE_DIR / "prompts"))
 PATHS = Paths(
     base_dir=BASE_DIR,
@@ -221,24 +240,6 @@ ATTEMPT_STORE_PATH = Path(ATTEMPT_STORE_PATH_RAW) if ATTEMPT_STORE_PATH_RAW else
 ATTEMPT_STORE_LOCK = Lock()
 ATTEMPT_STORE_CACHE: dict[str, int] = {}
 ATTEMPT_STORE_LOADED = False
-
-
-def load_env_file(path: Path) -> None:
-    if not path.exists():
-        return
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        os.environ.setdefault(key, value)
-
-
-# Load local .env so running uvicorn directly picks up keys.
-load_env_file(BASE_DIR / ".env")
-
 
 class HistoryTurn(BaseModel):
     role: Literal["assistant", "user"]
@@ -348,6 +349,29 @@ class TtsRequest(BaseModel):
 
 class TtsStatus(BaseModel):
     enabled: bool
+
+
+class EmailStatusResponse(BaseModel):
+    configured: bool
+    method: str
+    teacher_email_set: bool
+    smtp_host_set: bool
+    smtp_port: int
+    smtp_username_set: bool
+    smtp_from_set: bool
+    smtp_security: str
+    last_status: str | None = None
+    last_error: str | None = None
+    last_report_id: str | None = None
+    last_updated_at: str | None = None
+
+
+LAST_EMAIL_EVENT: dict[str, str | None] = {
+    "last_status": None,
+    "last_error": None,
+    "last_report_id": None,
+    "last_updated_at": None,
+}
 
 
 def _load_text(path: Path) -> str:
@@ -811,6 +835,14 @@ def send_final_report_email(
 ) -> tuple[bool, str | None]:
     if not email_delivery_configured():
         logger.warning("Final report email skipped: SMTP not configured.")
+        LAST_EMAIL_EVENT.update(
+            {
+                "last_status": "not_configured",
+                "last_error": "SMTP not configured",
+                "last_report_id": report_package.report_id,
+                "last_updated_at": now_iso_utc(),
+            }
+        )
         return False, "not_configured"
 
     subject = f"TerraTech Final Attempt Report | {student_name} | {report_package.report_id}"
@@ -869,9 +901,25 @@ def send_final_report_email(
                     smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
                 smtp.send_message(message)
         logger.info("Final report email sent for report_id=%s", report_package.report_id)
+        LAST_EMAIL_EVENT.update(
+            {
+                "last_status": "sent",
+                "last_error": None,
+                "last_report_id": report_package.report_id,
+                "last_updated_at": now_iso_utc(),
+            }
+        )
         return True, None
     except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to send final report email: %s", exc)
+        LAST_EMAIL_EVENT.update(
+            {
+                "last_status": "failed",
+                "last_error": str(exc),
+                "last_report_id": report_package.report_id,
+                "last_updated_at": now_iso_utc(),
+            }
+        )
         return False, str(exc)
 
 
@@ -1048,7 +1096,7 @@ def create_app() -> FastAPI:
                         },
                     )
         if pin_required():
-            allowed = {"/", "/health", "/auth", "/auth/status", "/tts/status", "/verify-report"}
+            allowed = {"/", "/health", "/auth", "/auth/status", "/tts/status", "/email/status", "/verify-report"}
             if request.url.path.startswith("/static"):
                 allowed.add(request.url.path)
             if request.method != "OPTIONS" and request.url.path not in allowed:
@@ -1082,6 +1130,16 @@ def create_app() -> FastAPI:
         _ = _load_text(PATHS.evaluation_prompt)
         load_attempt_store_if_needed()
         logger.info("Prompt validation completed.")
+        logger.info(
+            "Email delivery config: configured=%s teacher_set=%s host_set=%s username_set=%s from_set=%s security=%s port=%s",
+            email_delivery_configured(),
+            bool(TEACHER_EMAIL),
+            bool(SMTP_HOST),
+            bool(SMTP_USERNAME),
+            bool(SMTP_FROM),
+            SMTP_SECURITY,
+            SMTP_PORT,
+        )
 
     @app.get("/")
     async def root() -> FileResponse:
@@ -1102,6 +1160,23 @@ def create_app() -> FastAPI:
     @app.get("/tts/status", response_model=TtsStatus)
     async def tts_status() -> TtsStatus:
         return TtsStatus(enabled=tts_enabled())
+
+    @app.get("/email/status", response_model=EmailStatusResponse)
+    async def email_status() -> EmailStatusResponse:
+        return EmailStatusResponse(
+            configured=email_delivery_configured(),
+            method="smtp",
+            teacher_email_set=bool(TEACHER_EMAIL),
+            smtp_host_set=bool(SMTP_HOST),
+            smtp_port=SMTP_PORT,
+            smtp_username_set=bool(SMTP_USERNAME),
+            smtp_from_set=bool(SMTP_FROM),
+            smtp_security=SMTP_SECURITY,
+            last_status=LAST_EMAIL_EVENT.get("last_status"),
+            last_error=LAST_EMAIL_EVENT.get("last_error"),
+            last_report_id=LAST_EMAIL_EVENT.get("last_report_id"),
+            last_updated_at=LAST_EMAIL_EVENT.get("last_updated_at"),
+        )
 
     @app.post("/auth")
     async def auth_pin(payload: PinRequest) -> Response:

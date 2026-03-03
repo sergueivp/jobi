@@ -1,6 +1,16 @@
 # Changelog
 All notable changes to this project are documented here.
 
+## 2026-03-04
+### Changed
+- `.env` is now loaded before reading runtime constants, so SMTP/OpenAI values from `.env` are actually applied in local runs.
+- Report screen now shows explicit teacher-email delivery status (`sent`, `not configured`, or `failed` with error excerpt).
+- Added startup log line with email configuration flags (no secret values) to speed up deployment debugging.
+
+### Added
+- `GET /email/status` now includes `smtp_port` for clearer SMTP diagnostics.
+- API test coverage for `/email/status` configuration and last-delivery fields.
+
 ## 2026-03-03
 ### Added
 - 3-attempt assessment flow with server-tracked status endpoint: `GET /attempts/status`.

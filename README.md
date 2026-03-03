@@ -171,8 +171,9 @@ Open [http://localhost:8000](http://localhost:8000).
 - `GET /attempts/status` → returns attempt usage (max 3 attempts per student/role)
 - `POST /transcribe` → Whisper transcription for recorded audio
 - `POST /chat` → Alex reply + `is_probe` + `[INTERVIEW_COMPLETE]` detection
-- `POST /evaluate` → CEFR report + structured scores + signed report package (+ final-attempt teacher email queue when configured)
+- `POST /evaluate` → CEFR report + structured scores + signed report package (+ final-attempt teacher email send when configured)
 - `POST /verify-report` → verifies server signature for submitted report JSON
+- `GET /email/status` → SMTP configuration flags + last email delivery status/error
 
 ## Signed Report Verification
 
@@ -205,6 +206,18 @@ Set these environment variables (HF Space Secrets):
 - `SMTP_FROM`
 - `SMTP_SECURITY` (`ssl`, `starttls`, or `none`)
 
+Quick diagnostics:
+
+```bash
+curl https://<your-space>.hf.space/email/status \
+  -H "X-Access-Pin: <PIN-if-enabled>"
+```
+
+Check:
+- `configured: true`
+- `last_status: sent` after a final attempt
+- if `last_status: failed`, inspect `last_error` for the SMTP failure reason
+
 Optional hardening:
 - `LOCK_BROWSER_AFTER_FINAL=true` (default): after attempt 3, this browser session is locked from calling interview API endpoints.
 - `ATTEMPT_STORE_PATH=.attempts_store.json`: server-side persistent attempt counter store path.
@@ -216,7 +229,7 @@ source .venv/bin/activate
 pytest -q
 ```
 
-Current baseline: `7 passed`.
+Current baseline: `27 passed`.
 
 ---
 

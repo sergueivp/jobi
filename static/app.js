@@ -126,6 +126,7 @@ const ui = {
   reportStudentName: document.getElementById("report-student-name"),
   reportMeta: document.getElementById("report-meta"),
   reportText: document.getElementById("report-text"),
+  reportEmailStatus: document.getElementById("report-email-status"),
   copyReportBtn: document.getElementById("copy-report-btn"),
   downloadReportBtn: document.getElementById("download-report-btn"),
   printReportBtn: document.getElementById("print-report-btn"),
@@ -368,6 +369,22 @@ function setAttemptCounter(text) {
     return;
   }
   ui.attemptCounter.textContent = text;
+}
+
+function setReportEmailStatus(text, ok = false) {
+  if (!ui.reportEmailStatus) {
+    return;
+  }
+  const message = String(text || "").trim();
+  if (!message) {
+    ui.reportEmailStatus.classList.add("hidden");
+    ui.reportEmailStatus.textContent = "";
+    ui.reportEmailStatus.style.color = "";
+    return;
+  }
+  ui.reportEmailStatus.classList.remove("hidden");
+  ui.reportEmailStatus.textContent = message;
+  ui.reportEmailStatus.style.color = ok ? "#2f7d32" : "#7a5520";
 }
 
 function renderAttemptStatus(status) {
@@ -2189,6 +2206,7 @@ async function finishInterview(reason = "completed") {
   if (ui.reportMeta) {
     ui.reportMeta.textContent = `${state.roleName || "Role"} · TerraTech Geospatial Solutions · ${dateStr} · ${formatReportDuration(durationSeconds)}`;
   }
+  setReportEmailStatus("");
 
   try {
     const payload = await apiPost(
@@ -2234,16 +2252,26 @@ async function finishInterview(reason = "completed") {
 
     renderScores(payload.scores);
     renderReportText(payload.report_text || "No report returned.");
-    if (payload.final_report_email_status === "sent") {
+    const isFinalAttempt = Boolean(state.attemptResult?.is_assessment_attempt);
+    if (!isFinalAttempt) {
+      setReportEmailStatus("Practice attempt: teacher email is sent only after attempt 3/3.");
+      setStatus("Report ready.");
+    } else if (payload.final_report_email_status === "sent") {
+      setReportEmailStatus("Teacher email: sent successfully.", true);
       setStatus("Report ready. Final report emailed to teacher.");
     } else if (payload.final_report_email_status === "not_configured") {
+      setReportEmailStatus("Teacher email: not configured on server.");
       setStatus("Report ready. Teacher email is not configured.");
     } else if (
       typeof payload.final_report_email_status === "string" &&
       payload.final_report_email_status.startsWith("failed:")
     ) {
+      const reasonText = payload.final_report_email_status.slice("failed:".length).trim();
+      const compactReason = reasonText ? reasonText.slice(0, 180) : "Unknown SMTP error";
+      setReportEmailStatus(`Teacher email: failed (${compactReason}).`);
       setStatus("Report ready. Teacher email failed. Check server logs.");
     } else {
+      setReportEmailStatus("Teacher email: status unavailable.");
       setStatus("Report ready.");
     }
   } catch (error) {
@@ -2257,6 +2285,7 @@ async function finishInterview(reason = "completed") {
       ui.newInterviewBtn.disabled = false;
       ui.newInterviewBtn.textContent = "New Interview";
     }
+    setReportEmailStatus("");
     renderReportText(`Failed to generate report: ${error.message}`);
     setStatus("Report generation failed.");
   }
@@ -2710,6 +2739,7 @@ async function initialize() {
     ui.newInterviewBtn.disabled = false;
     ui.newInterviewBtn.textContent = "New Interview";
   }
+  setReportEmailStatus("");
   renderAttemptStatus(null);
 
   if (window.speechSynthesis) {

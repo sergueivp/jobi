@@ -112,3 +112,9 @@ This file is **for the assistant’s use**. It captures validated solutions and 
 **Decision:** Persist attempt counts server-side (`ATTEMPT_STORE_PATH`) and merge with cookie counts when available.
 **Evidence:** Attempt limits remain enforceable even when browser cookie state is unstable.
 **Reuse rule:** For classroom limits, do not rely exclusively on client/browser persistence.
+
+### 2026-03-04 — Environment load order for operational config
+**Context:** Local runs used `.env`, but SMTP/API constants were read before `.env` loading, causing false "not configured" behavior.
+**Decision:** Load `.env` before initializing runtime constants.
+**Evidence:** SMTP/OpenAI flags now reflect `.env` values during startup and in `/email/status`.
+**Reuse rule:** Any env-backed constants must be initialized only after env loaders run.
