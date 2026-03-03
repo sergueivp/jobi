@@ -8,6 +8,7 @@ All notable changes to this project are documented here.
 - Added startup log line with email configuration flags (no secret values) to speed up deployment debugging.
 - Email delivery now supports `resend` (HTTPS) and `smtp`, with `auto` selection preferring Resend when configured.
 - SMTP failures can automatically fall back to Resend when both methods are configured.
+- Resend client now sends `User-Agent` and `Accept` headers to satisfy API requirements and prevent `403 error code: 1010`.
 
 ### Added
 - `GET /email/status` now includes `smtp_port` for clearer SMTP diagnostics.

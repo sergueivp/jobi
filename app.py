@@ -80,6 +80,7 @@ RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
 RESEND_FROM = os.getenv("RESEND_FROM", "").strip()
 RESEND_API_URL = os.getenv("RESEND_API_URL", "https://api.resend.com/emails").strip()
 EMAIL_DELIVERY_METHOD = os.getenv("EMAIL_DELIVERY_METHOD", "auto").strip().lower()  # auto | resend | smtp
+APP_USER_AGENT = "terratech-interview-simulator/1.0"
 
 PROBE_PHRASES = (
     "tell me more",
@@ -969,6 +970,8 @@ def _send_via_resend(
         headers={
             "Authorization": f"Bearer {RESEND_API_KEY}",
             "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": APP_USER_AGENT,
         },
     )
     try:
