@@ -376,12 +376,17 @@ function renderAttemptStatus(status) {
     return;
   }
   if (status.is_locked) {
-    setAttemptCounter(`Attempts used: ${status.attempts_used}/${status.max_attempts}. No attempts left.`);
+    setAttemptCounter(
+      `Attempts left: 0/${status.max_attempts}. ${status.warning || "No attempts left."}`,
+    );
+    if (ui.beginBtn) {
+      ui.beginBtn.disabled = true;
+    }
     return;
   }
   const mode = status.is_final_attempt ? "Final (graded)" : "Practice";
   setAttemptCounter(
-    `Attempts used: ${status.attempts_used}/${status.max_attempts}. Next: attempt ${status.next_attempt_number}/${status.max_attempts} (${mode}).`,
+    `Attempts left: ${status.attempts_remaining}/${status.max_attempts}. Next: attempt ${status.next_attempt_number}/${status.max_attempts} (${mode}).`,
   );
 }
 
@@ -992,6 +997,27 @@ async function fetchAttemptStatus(studentName, roleName) {
       handlePinRequired();
       throw new Error("PIN required");
     }
+    if (response.status === 403) {
+      let detailMessage = "Attempts exhausted.";
+      try {
+        const err = await response.json();
+        detailMessage = err?.detail?.message || detailMessage;
+      } catch (_error) {
+        // Ignore JSON parse failures.
+      }
+      const lockedStatus = {
+        attempts_used: 3,
+        attempts_remaining: 0,
+        next_attempt_number: 4,
+        max_attempts: 3,
+        is_final_attempt: false,
+        is_locked: true,
+        warning: detailMessage,
+      };
+      state.attemptStatus = lockedStatus;
+      renderAttemptStatus(lockedStatus);
+      throw new Error(detailMessage);
+    }
     let message = "Failed to load attempt status";
     try {
       const err = await response.json();
@@ -1437,7 +1463,29 @@ async function apiPost(path, payload, timeoutMs = 60000) {
         handlePinRequired();
         throw new Error("PIN required");
       }
-      if (err?.detail?.message) {
+      if (response.status === 403 && err?.detail?.code === "ATTEMPTS_EXHAUSTED") {
+        renderAttemptStatus({
+          attempts_used: 3,
+          attempts_remaining: 0,
+          next_attempt_number: 4,
+          max_attempts: 3,
+          is_final_attempt: false,
+          is_locked: true,
+          warning: "All attempts are already used.",
+        });
+        message = err?.detail?.message || "Attempts exhausted.";
+      } else if (response.status === 403 && err?.detail?.code === "SESSION_LOCKED") {
+        renderAttemptStatus({
+          attempts_used: 3,
+          attempts_remaining: 0,
+          next_attempt_number: 4,
+          max_attempts: 3,
+          is_final_attempt: false,
+          is_locked: true,
+          warning: err?.detail?.message || "Session locked after final attempt.",
+        });
+        message = err?.detail?.message || "Session locked.";
+      } else if (err?.detail?.message) {
         message = err.detail.message;
       }
     } catch (_error) {
@@ -1903,6 +1951,8 @@ function startRecording() {
     const ext = blobType.includes("mp4") ? "m4a" : blobType.includes("ogg") ? "ogg" : "webm";
     form.append("audio", blob, `answer.${ext}`);
     form.append("duration_ms", String(durationMs));
+    form.append("student_name", state.studentName || "");
+    form.append("role_name", state.roleName || "");
 
     try {
       const transcribeStarted = performance.now();
@@ -2468,6 +2518,9 @@ async function beginInterview() {
   const attemptStatus = await fetchAttemptStatus(studentName, roleName);
   if (attemptStatus.is_locked) {
     setStatus(`All ${attemptStatus.max_attempts} attempts are already used for this student/role.`);
+    if (ui.beginBtn) {
+      ui.beginBtn.disabled = true;
+    }
     return;
   }
   if (attemptStatus.is_final_attempt) {

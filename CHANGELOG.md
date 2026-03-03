@@ -24,6 +24,8 @@ All notable changes to this project are documented here.
 - Backend scoring now enforces:
   - `answered_questions = 0` -> all criteria `0`, total `0`, CEFR `Not assessable`
   - strike-based C5 caps and C1=0 at strike 3 (rubric v2 alignment)
+- Server-side hard lock now blocks interview API-cost endpoints after final attempt (`SESSION_LOCKED`), reducing API credit leakage.
+- `/chat` and `/transcribe` now enforce attempt availability before OpenAI calls.
 
 ### Fixed
 - Resolved forward-reference typing issue in `EvaluateResponse` for Python 3.13.

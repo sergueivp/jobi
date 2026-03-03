@@ -205,6 +205,9 @@ Set these environment variables (HF Space Secrets):
 - `SMTP_FROM`
 - `SMTP_SECURITY` (`ssl`, `starttls`, or `none`)
 
+Optional hardening:
+- `LOCK_BROWSER_AFTER_FINAL=true` (default): after attempt 3, this browser session is locked from calling interview API endpoints.
+
 ## Test Suite
 
 ```bash

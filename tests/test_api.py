@@ -351,6 +351,17 @@ def test_attempt_status_defaults_to_first_attempt() -> None:
     assert payload["is_locked"] is False
 
 
+def test_attempt_status_returns_locked_when_browser_lock_cookie_present() -> None:
+    client = TestClient(app_module.create_app())
+    client.cookies.set(app_module.BROWSER_LOCK_COOKIE_NAME, "1")
+    response = client.get("/attempts/status", params={"student_name": "Maria", "role_name": "GIS Analyst"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["is_locked"] is True
+    assert payload["attempts_remaining"] == 0
+
+
 def test_evaluate_enforces_three_attempt_limit_and_marks_final(monkeypatch) -> None:
     monkeypatch.setattr(app_module, "get_openai_client", lambda: _fake_eval_openai_client())
     monkeypatch.setattr(app_module, "email_delivery_configured", lambda: False)
@@ -379,7 +390,36 @@ def test_evaluate_enforces_three_attempt_limit_and_marks_final(monkeypatch) -> N
 
     fourth = client.post("/evaluate", json=payload)
     assert fourth.status_code == 403
-    assert fourth.json()["detail"]["code"] == "ATTEMPTS_EXHAUSTED"
+    assert fourth.json()["detail"]["code"] in {"ATTEMPTS_EXHAUSTED", "SESSION_LOCKED"}
+
+
+def test_chat_rejects_when_attempts_exhausted(monkeypatch) -> None:
+    monkeypatch.setattr(
+        app_module,
+        "get_openai_client",
+        lambda: _fake_openai_client("Right. Let's continue."),
+    )
+    client = TestClient(app_module.create_app())
+    identity_key = app_module.normalize_attempt_key("Maria", "Junior Developer")
+    cookie_value = app_module.serialize_attempt_cookie({identity_key: 3})
+    client.cookies.set(app_module.ATTEMPTS_COOKIE_NAME, cookie_value)
+    response = client.post("/chat", json=_chat_payload())
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "ATTEMPTS_EXHAUSTED"
+
+
+def test_transcribe_rejects_when_attempts_exhausted() -> None:
+    client = TestClient(app_module.create_app())
+    identity_key = app_module.normalize_attempt_key("Maria", "Junior Developer")
+    cookie_value = app_module.serialize_attempt_cookie({identity_key: 3})
+    client.cookies.set(app_module.ATTEMPTS_COOKIE_NAME, cookie_value)
+    files = {"audio": ("sample.wav", b"RIFFDATA", "audio/wav")}
+    data = {"duration_ms": "1000", "student_name": "Maria", "role_name": "Junior Developer"}
+    response = client.post("/transcribe", files=files, data=data)
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "ATTEMPTS_EXHAUSTED"
 
 
 def test_signed_report_package_can_be_verified(monkeypatch) -> None:

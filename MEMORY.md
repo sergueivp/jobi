@@ -100,3 +100,9 @@ This file is **for the assistant’s use**. It captures validated solutions and 
 **Decision:** On attempt 3/3, queue server-side SMTP email to teacher and attach signed JSON report package.
 **Evidence:** Teacher receives immutable signed artifact independently of student submission flow.
 **Reuse rule:** For high-stakes submission, always generate a server-origin teacher copy on final assessment event.
+
+### 2026-03-03 — Hard lock after final attempt
+**Context:** UI-only lock was insufficient; students could still trigger some calls in edge flows.
+**Decision:** Add backend `SESSION_LOCKED` middleware gate for API-cost endpoints after final attempt cookie is set.
+**Evidence:** Post-final `/transcribe`, `/chat`, `/tts`, `/evaluate` and `/questions` are blocked server-side on locked sessions.
+**Reuse rule:** Any spend-sensitive policy must be enforced server-side before external API calls.

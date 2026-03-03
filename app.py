@@ -38,6 +38,13 @@ TTS_VOICE = os.getenv("TTS_VOICE", "alloy")
 MAX_ATTEMPTS = 3
 ATTEMPTS_COOKIE_NAME = "tt_attempts"
 ATTEMPTS_COOKIE_TTL_HOURS = int(os.getenv("ATTEMPTS_COOKIE_TTL_HOURS", "720"))
+BROWSER_LOCK_COOKIE_NAME = "tt_final_lock"
+LOCK_BROWSER_AFTER_FINAL = os.getenv("LOCK_BROWSER_AFTER_FINAL", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 TEACHER_EMAIL = os.getenv("TEACHER_EMAIL", "").strip()
 SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
 SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
@@ -673,6 +680,29 @@ def build_attempt_status(attempts_used: int) -> AttemptStatusResponse:
     )
 
 
+def attempts_used_for_identity(request: Request, student_name: str, role_name: str) -> int:
+    key = normalize_attempt_key(student_name, role_name)
+    store = parse_attempt_cookie(request.cookies.get(ATTEMPTS_COOKIE_NAME))
+    return store.get(key, 0)
+
+
+def ensure_attempts_available(request: Request, student_name: str, role_name: str) -> None:
+    used = attempts_used_for_identity(request, student_name, role_name)
+    status = build_attempt_status(used)
+    if status.is_locked:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "ATTEMPTS_EXHAUSTED",
+                "message": (
+                    f"All {MAX_ATTEMPTS} attempts are already used for this student/role. "
+                    "No additional interview calls are allowed."
+                ),
+                "retryable": False,
+            },
+        )
+
+
 def sign_report_payload(payload: dict[str, object]) -> str:
     return sign_text(canonical_json(payload))
 
@@ -942,6 +972,20 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def no_cache_headers(request: Request, call_next):  # type: ignore[no-untyped-def]
+        if LOCK_BROWSER_AFTER_FINAL:
+            locked_paths = {"/questions", "/transcribe", "/tts", "/chat", "/evaluate"}
+            if request.method != "OPTIONS" and request.url.path in locked_paths:
+                if request.cookies.get(BROWSER_LOCK_COOKIE_NAME) == "1":
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "detail": {
+                                "code": "SESSION_LOCKED",
+                                "message": "Final attempt already completed on this browser session.",
+                                "retryable": False,
+                            }
+                        },
+                    )
         if pin_required():
             allowed = {"/", "/health", "/auth", "/auth/status", "/tts/status", "/verify-report"}
             if request.url.path.startswith("/static"):
@@ -1042,6 +1086,16 @@ def create_app() -> FastAPI:
 
     @app.get("/attempts/status", response_model=AttemptStatusResponse)
     async def attempts_status(student_name: str, role_name: str, request: Request) -> AttemptStatusResponse:
+        if LOCK_BROWSER_AFTER_FINAL and request.cookies.get(BROWSER_LOCK_COOKIE_NAME) == "1":
+            return AttemptStatusResponse(
+                attempts_used=MAX_ATTEMPTS,
+                attempts_remaining=0,
+                next_attempt_number=MAX_ATTEMPTS + 1,
+                max_attempts=MAX_ATTEMPTS,
+                is_final_attempt=False,
+                is_locked=True,
+                warning="Final attempt already completed on this browser session.",
+            )
         student = student_name.strip()
         role = role_name.strip()
         if not student or not role:
@@ -1059,9 +1113,15 @@ def create_app() -> FastAPI:
 
     @app.post("/transcribe")
     async def transcribe_audio(
+        request: Request,
         audio: UploadFile = File(...),
         duration_ms: int = Form(default=0),
+        student_name: str | None = Form(default=None),
+        role_name: str | None = Form(default=None),
     ) -> dict[str, str | int]:
+        if student_name and role_name:
+            ensure_attempts_available(request, student_name, role_name)
+
         if not audio.content_type or not audio.content_type.startswith("audio/"):
             raise HTTPException(
                 status_code=415,
@@ -1160,7 +1220,9 @@ def create_app() -> FastAPI:
         return Response(content=audio_bytes, media_type="audio/mpeg")
 
     @app.post("/chat", response_model=ChatResponse)
-    async def chat_reply(payload: ChatRequest) -> ChatResponse:
+    async def chat_reply(payload: ChatRequest, request: Request) -> ChatResponse:
+        ensure_attempts_available(request, payload.student_name, payload.role_name)
+
         if len(payload.history) > MAX_HISTORY_TURNS:
             raise HTTPException(
                 status_code=400,
@@ -1362,6 +1424,14 @@ def create_app() -> FastAPI:
                 httponly=True,
                 samesite="lax",
             )
+            if attempt_result.is_assessment_attempt and LOCK_BROWSER_AFTER_FINAL:
+                http_response.set_cookie(
+                    BROWSER_LOCK_COOKIE_NAME,
+                    "1",
+                    max_age=max_age,
+                    httponly=True,
+                    samesite="lax",
+                )
 
             return EvaluateResponse(
                 report_text=full_report_text,
