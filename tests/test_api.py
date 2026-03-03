@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -48,6 +49,39 @@ def test_questions_endpoint_returns_500_on_parser_error(monkeypatch) -> None:
 
 def _fake_openai_client(reply_text: str):
     message = SimpleNamespace(content=reply_text)
+    choice = SimpleNamespace(message=message)
+    completion = SimpleNamespace(choices=[choice])
+
+    class FakeCompletions:
+        @staticmethod
+        def create(**_kwargs):
+            return completion
+
+    class FakeChat:
+        completions = FakeCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    return FakeClient()
+
+
+def _fake_eval_openai_client(report_text: str = "Sample evaluation report"):
+    payload = {
+        "report_text": report_text,
+        "scores": {
+            "c1": 3,
+            "c2": 3,
+            "c3": 3,
+            "c4": 3,
+            "c5": 3,
+            "total": 15,
+            "percent": 75,
+            "grade": "B",
+            "cefr": "B2.1",
+        },
+    }
+    message = SimpleNamespace(content=json.dumps(payload))
     choice = SimpleNamespace(message=message)
     completion = SimpleNamespace(choices=[choice])
 
@@ -250,3 +284,118 @@ def test_complete_interview_recomputes_without_caps() -> None:
     assert adjusted.total == 15
     assert adjusted.percent == 75
     assert adjusted.grade == "B"
+
+
+def test_zero_answered_questions_returns_no_performance() -> None:
+    original = app_module.ScorePayload(c1=2, c2=2, c3=2, c4=2, c5=2, total=10, percent=50, grade="C", cefr="B1.2")
+    adjusted, applied = app_module.apply_incomplete_interview_caps(
+        original,
+        answered_questions=0,
+        total_questions=7,
+        interview_completed=False,
+    )
+
+    assert applied is True
+    assert adjusted.total == 0
+    assert adjusted.c1 == 0
+    assert adjusted.c5 == 0
+    assert adjusted.cefr == "Not assessable"
+
+
+def test_strike_three_caps_c1_and_c5() -> None:
+    original = app_module.ScorePayload(c1=3, c2=3, c3=3, c4=3, c5=4, total=16, percent=80, grade="B", cefr="B2.1")
+    adjusted, applied = app_module.apply_incomplete_interview_caps(
+        original,
+        answered_questions=7,
+        total_questions=7,
+        interview_completed=True,
+        off_topic_strikes=3,
+    )
+
+    assert applied is False
+    assert adjusted.c1 == 0
+    assert adjusted.c5 == 1
+
+
+def test_grade_mapping_zero_total_not_assessable() -> None:
+    grade, cefr = app_module.grade_from_total(0)
+    assert grade == "F (No performance)"
+    assert cefr == "Not assessable"
+
+
+def _evaluate_payload(student_name: str = "Maria", role_name: str = "GIS Analyst") -> dict:
+    return {
+        "student_name": student_name,
+        "role_name": role_name,
+        "transcript": [
+            {"role": "assistant", "content": "Tell me about yourself.", "timestamp": "10:00:00"},
+            {"role": "user", "content": "I am a GIS student.", "timestamp": "10:00:08"},
+        ],
+        "duration_seconds": 120,
+        "off_topic_strikes": 0,
+        "answered_questions": 1,
+        "total_questions": 7,
+        "interview_completed": False,
+    }
+
+
+def test_attempt_status_defaults_to_first_attempt() -> None:
+    client = TestClient(app_module.create_app())
+    response = client.get("/attempts/status", params={"student_name": "Maria", "role_name": "GIS Analyst"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["attempts_used"] == 0
+    assert payload["next_attempt_number"] == 1
+    assert payload["is_final_attempt"] is False
+    assert payload["is_locked"] is False
+
+
+def test_evaluate_enforces_three_attempt_limit_and_marks_final(monkeypatch) -> None:
+    monkeypatch.setattr(app_module, "get_openai_client", lambda: _fake_eval_openai_client())
+
+    client = TestClient(app_module.create_app())
+    payload = _evaluate_payload()
+
+    first = client.post("/evaluate", json=payload)
+    assert first.status_code == 200
+    first_data = first.json()
+    assert first_data["attempt"]["attempt_number"] == 1
+    assert first_data["attempt"]["is_assessment_attempt"] is False
+
+    second = client.post("/evaluate", json=payload)
+    assert second.status_code == 200
+    second_data = second.json()
+    assert second_data["attempt"]["attempt_number"] == 2
+    assert second_data["attempt"]["is_assessment_attempt"] is False
+
+    third = client.post("/evaluate", json=payload)
+    assert third.status_code == 200
+    third_data = third.json()
+    assert third_data["attempt"]["attempt_number"] == 3
+    assert third_data["attempt"]["is_assessment_attempt"] is True
+
+    fourth = client.post("/evaluate", json=payload)
+    assert fourth.status_code == 403
+    assert fourth.json()["detail"]["code"] == "ATTEMPTS_EXHAUSTED"
+
+
+def test_signed_report_package_can_be_verified(monkeypatch) -> None:
+    monkeypatch.setattr(app_module, "get_openai_client", lambda: _fake_eval_openai_client())
+
+    client = TestClient(app_module.create_app())
+    evaluate_response = client.post("/evaluate", json=_evaluate_payload(student_name="Sergi"))
+    assert evaluate_response.status_code == 200
+    package = evaluate_response.json()["report_package"]
+
+    verified = client.post("/verify-report", json=package)
+    assert verified.status_code == 200
+    assert verified.json()["valid"] is True
+
+    tampered = dict(package)
+    tampered_payload = dict(package["payload"])
+    tampered_payload["report_text"] = "Tampered text"
+    tampered["payload"] = tampered_payload
+    rejected = client.post("/verify-report", json=tampered)
+    assert rejected.status_code == 200
+    assert rejected.json()["valid"] is False

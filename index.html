@@ -11,7 +11,7 @@
       rel="stylesheet"
     />
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/static/styles.css?v=20260303a" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260303b" />
   </head>
   <body>
     <main class="app-shell" aria-live="polite">
@@ -32,6 +32,15 @@
           </p>
 
           <p id="status-line" class="setup-status">Loading interview questions...</p>
+          <div class="attempt-box" aria-live="polite">
+            <div class="attempt-title">Attempt Policy</div>
+            <div id="attempt-policy" class="attempt-policy">
+              You have 3 attempts. Attempts 1-2 are practice. Attempt 3 is final and counts for assessment.
+            </div>
+            <div id="attempt-counter" class="attempt-counter">
+              Enter your details to view your current attempt status.
+            </div>
+          </div>
 
           <form id="setup-form">
             <div class="form-group">
@@ -161,15 +170,19 @@
               <pre id="report-text" class="m-report-content"></pre>
             </div>
             <div class="m-report-actions">
-              <button id="copy-report-btn" type="button" class="m-btn-rep primary">Copy Report</button>
+              <button id="download-report-btn" type="button" class="m-btn-rep primary">Download Signed Report</button>
+              <button id="copy-report-btn" type="button" class="m-btn-rep">Copy Report (Optional)</button>
               <button id="print-report-btn" type="button" class="m-btn-rep">Print / PDF</button>
               <button id="new-interview-btn" type="button" class="m-btn-rep">New Interview</button>
+            </div>
+            <div class="report-submit-hint">
+              Students: upload the signed JSON file to PoliformaT. Copy/Print are optional.
             </div>
           </div>
         </div>
       </section>
     </main>
 
-    <script src="/static/app.js?v=20260303f" defer></script>
+    <script src="/static/app.js?v=20260303h" defer></script>
   </body>
 </html>

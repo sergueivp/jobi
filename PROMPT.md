@@ -269,7 +269,7 @@ TRANSCRIPT:
 
 ## ASSESSMENT RUBRIC
 
-Score each criterion on a scale of 1–4. Use the descriptors below.
+Score each criterion on a scale of 0–4. Use the descriptors below.
 
 ### C1 — TASK COMPLETION
 4 — Answered all questions fully. Responses were well-developed with specific examples and clear structure. No questions were avoided.
@@ -340,7 +340,8 @@ CEFR MAPPING:
   13–16 (65–80%)  = Grade B = B2.1
   9–12  (45–60%)  = Grade C = B1.2
   5–8   (25–40%)  = Grade D = B1.1
-  0–4   (0–20%)   = Grade F = Below B1.1
+  1–4   (5–20%)   = Grade F = Below B1.1
+  0     (0%)      = Grade F (No performance) = Not assessable
 
 ───────────────────────────────────────────────────
 LANGUAGE SAMPLES FROM THIS INTERVIEW

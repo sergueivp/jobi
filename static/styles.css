@@ -145,6 +145,36 @@ button:focus {
   font-size: 12px;
 }
 
+.attempt-box {
+  margin: 0 0 16px;
+  border: 1px solid #e6d5bc;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fdf8ee;
+}
+
+.attempt-title {
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #8a7a68;
+  margin-bottom: 6px;
+}
+
+.attempt-policy {
+  color: #6f5734;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.attempt-counter {
+  margin-top: 6px;
+  color: #7a5520;
+  font-size: 12px;
+  font-weight: 500;
+}
+
 .form-group {
   margin-bottom: 14px;
 }
@@ -893,6 +923,14 @@ label {
   cursor: not-allowed;
 }
 
+.report-submit-hint {
+  padding: 0 26px 16px;
+  font-size: 11px;
+  color: #8a7a68;
+  font-family: "DM Mono", monospace;
+  letter-spacing: 0.03em;
+}
+
 @media print {
   body {
     background: #fff;
@@ -964,5 +1002,9 @@ label {
 
   .m-report-actions {
     padding: 12px 14px 14px;
+  }
+
+  .report-submit-hint {
+    padding: 0 14px 12px;
   }
 }

@@ -6,8 +6,10 @@ import logging
 import os
 import re
 import hashlib
+import hmac
+import base64
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -31,6 +33,9 @@ ACCESS_PIN = os.getenv("ACCESS_PIN", "").strip()
 ACCESS_PIN_TTL_HOURS = int(os.getenv("ACCESS_PIN_TTL_HOURS", "168"))
 TTS_MODEL = os.getenv("TTS_MODEL", "gpt-4o-mini-tts")
 TTS_VOICE = os.getenv("TTS_VOICE", "alloy")
+MAX_ATTEMPTS = 3
+ATTEMPTS_COOKIE_NAME = "tt_attempts"
+ATTEMPTS_COOKIE_TTL_HOURS = int(os.getenv("ATTEMPTS_COOKIE_TTL_HOURS", "720"))
 
 PROBE_PHRASES = (
     "tell me more",
@@ -253,24 +258,57 @@ class EvaluateRequest(BaseModel):
 
 
 class ScorePayload(BaseModel):
-    c1: int | None = Field(default=None, ge=1, le=4)
-    c2: int | None = Field(default=None, ge=1, le=4)
-    c3: int | None = Field(default=None, ge=1, le=4)
-    c4: int | None = Field(default=None, ge=1, le=4)
-    c5: int | None = Field(default=None, ge=1, le=4)
+    c1: int | None = Field(default=None, ge=0, le=4)
+    c2: int | None = Field(default=None, ge=0, le=4)
+    c3: int | None = Field(default=None, ge=0, le=4)
+    c4: int | None = Field(default=None, ge=0, le=4)
+    c5: int | None = Field(default=None, ge=0, le=4)
     total: int | None = Field(default=None, ge=0, le=20)
     percent: int | None = Field(default=None, ge=0, le=100)
     grade: str | None = None
     cefr: str | None = None
 
 
+class QuestionResponse(BaseModel):
+    questions: list[str]
+
+
+class AttemptStatusResponse(BaseModel):
+    attempts_used: int = Field(ge=0, le=MAX_ATTEMPTS)
+    attempts_remaining: int = Field(ge=0, le=MAX_ATTEMPTS)
+    next_attempt_number: int = Field(ge=1, le=MAX_ATTEMPTS + 1)
+    max_attempts: int = MAX_ATTEMPTS
+    is_final_attempt: bool
+    is_locked: bool
+    warning: str | None = None
+
+
+class AttemptResult(BaseModel):
+    attempt_number: int = Field(ge=1, le=MAX_ATTEMPTS)
+    max_attempts: int = MAX_ATTEMPTS
+    is_final_attempt: bool
+    is_assessment_attempt: bool
+
+
+class SignedReportPackage(BaseModel):
+    report_id: str
+    issued_at: str
+    payload: dict[str, object]
+    signature: str
+
+
+class VerifyReportResponse(BaseModel):
+    valid: bool
+    report_id: str
+    reason: str | None = None
+    verified_at: str
+
+
 class EvaluateResponse(BaseModel):
     report_text: str
     scores: ScorePayload
-
-
-class QuestionResponse(BaseModel):
-    questions: list[str]
+    attempt: AttemptResult | None = None
+    report_package: SignedReportPackage | None = None
 
 
 class PinRequest(BaseModel):
@@ -526,6 +564,141 @@ def tts_enabled() -> bool:
     return bool(os.getenv("OPENAI_API_KEY"))
 
 
+def now_iso_utc() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def get_signing_secret() -> str:
+    secret = os.getenv("REPORT_SIGNING_SECRET", "").strip()
+    if secret:
+        return secret
+    if ACCESS_PIN:
+        return ACCESS_PIN
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if api_key:
+        return api_key
+    return "terratech-dev-signing-secret"
+
+
+def b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def b64url_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(value + padding)
+
+
+def sign_text(value: str) -> str:
+    digest = hmac.new(get_signing_secret().encode("utf-8"), value.encode("utf-8"), hashlib.sha256).digest()
+    return b64url_encode(digest)
+
+
+def canonical_json(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def normalize_attempt_key(student_name: str, role_name: str) -> str:
+    material = f"{student_name.strip().lower()}|{role_name.strip().lower()}"
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:24]
+
+
+def parse_attempt_cookie(cookie_value: str | None) -> dict[str, int]:
+    if not cookie_value:
+        return {}
+    try:
+        payload_b64, signature = cookie_value.split(".", 1)
+    except ValueError:
+        return {}
+
+    expected = sign_text(payload_b64)
+    if not hmac.compare_digest(signature, expected):
+        logger.warning("Attempt cookie signature mismatch; resetting.")
+        return {}
+
+    try:
+        decoded = b64url_decode(payload_b64).decode("utf-8")
+        parsed = json.loads(decoded)
+    except Exception:  # noqa: BLE001
+        return {}
+
+    if not isinstance(parsed, dict):
+        return {}
+
+    sanitized: dict[str, int] = {}
+    for key, value in parsed.items():
+        if isinstance(key, str) and isinstance(value, int):
+            sanitized[key] = max(0, min(MAX_ATTEMPTS, value))
+    return sanitized
+
+
+def serialize_attempt_cookie(store: dict[str, int]) -> str:
+    serialized = canonical_json(store)
+    payload_b64 = b64url_encode(serialized.encode("utf-8"))
+    signature = sign_text(payload_b64)
+    return f"{payload_b64}.{signature}"
+
+
+def build_attempt_status(attempts_used: int) -> AttemptStatusResponse:
+    used = max(0, min(MAX_ATTEMPTS, attempts_used))
+    is_locked = used >= MAX_ATTEMPTS
+    next_attempt_number = min(used + 1, MAX_ATTEMPTS + 1)
+    is_final_attempt = not is_locked and next_attempt_number == MAX_ATTEMPTS
+    warning: str | None = None
+    if is_locked:
+        warning = f"All {MAX_ATTEMPTS} attempts are already used."
+    elif is_final_attempt:
+        warning = (
+            f"Warning: this is your final attempt ({MAX_ATTEMPTS}/{MAX_ATTEMPTS}). "
+            "This result is the one for assessment."
+        )
+    return AttemptStatusResponse(
+        attempts_used=used,
+        attempts_remaining=max(0, MAX_ATTEMPTS - used),
+        next_attempt_number=next_attempt_number,
+        max_attempts=MAX_ATTEMPTS,
+        is_final_attempt=is_final_attempt,
+        is_locked=is_locked,
+        warning=warning,
+    )
+
+
+def sign_report_payload(payload: dict[str, object]) -> str:
+    return sign_text(canonical_json(payload))
+
+
+def build_report_id(payload: dict[str, object], signature: str) -> str:
+    digest = hashlib.sha256(f"{canonical_json(payload)}.{signature}".encode("utf-8")).hexdigest()
+    return f"rep_{digest[:16]}"
+
+
+def create_signed_report_package(payload: dict[str, object]) -> SignedReportPackage:
+    signature = sign_report_payload(payload)
+    report_id = build_report_id(payload, signature)
+    issued_at = str(payload.get("issued_at") or now_iso_utc())
+    return SignedReportPackage(
+        report_id=report_id,
+        issued_at=issued_at,
+        payload=payload,
+        signature=signature,
+    )
+
+
+def verify_signed_report_package(report_package: SignedReportPackage) -> tuple[bool, str | None]:
+    expected_signature = sign_report_payload(report_package.payload)
+    if not hmac.compare_digest(report_package.signature, expected_signature):
+        return False, "Signature mismatch."
+
+    expected_report_id = build_report_id(report_package.payload, report_package.signature)
+    if report_package.report_id != expected_report_id:
+        return False, "Report ID mismatch."
+
+    if str(report_package.payload.get("issued_at", "")) != report_package.issued_at:
+        return False, "Issued-at mismatch."
+
+    return True, None
+
+
 def read_audio_bytes(result: object) -> bytes:
     if isinstance(result, (bytes, bytearray)):
         return bytes(result)
@@ -537,6 +710,8 @@ def read_audio_bytes(result: object) -> bytes:
 
 
 def grade_from_total(total: int) -> tuple[str, str]:
+    if total == 0:
+        return ("F (No performance)", "Not assessable")
     if total >= 17:
         return ("A", "B2+")
     if total >= 13:
@@ -559,7 +734,7 @@ def cap_total(scores: list[int], total_cap: int) -> list[int]:
     while sum(scores) > total_cap:
         changed = False
         for idx in order:
-            if scores[idx] > 1 and sum(scores) > total_cap:
+            if scores[idx] > 0 and sum(scores) > total_cap:
                 scores[idx] -= 1
                 changed = True
         if not changed:
@@ -572,12 +747,34 @@ def apply_incomplete_interview_caps(
     answered_questions: int,
     total_questions: int,
     interview_completed: bool,
+    off_topic_strikes: int = 0,
 ) -> tuple[ScorePayload, bool]:
     if not all_criteria_present(scores):
         return scores, False
 
+    if answered_questions <= 0:
+        zeroed = ScorePayload(
+            c1=0,
+            c2=0,
+            c3=0,
+            c4=0,
+            c5=0,
+            total=0,
+            percent=0,
+            grade="F (No performance)",
+            cefr="Not assessable",
+        )
+        return zeroed, True
+
     if interview_completed and answered_questions >= total_questions:
         criteria = [scores.c1, scores.c2, scores.c3, scores.c4, scores.c5]  # type: ignore[list-item]
+        if off_topic_strikes >= 1:
+            criteria[4] = min(criteria[4], 3)
+        if off_topic_strikes >= 2:
+            criteria[4] = min(criteria[4], 2)
+        if off_topic_strikes >= 3:
+            criteria[4] = min(criteria[4], 1)
+            criteria[0] = 0
         total = sum(criteria)
         percent = int(round((total / 20) * 100))
         grade, cefr = grade_from_total(total)
@@ -620,6 +817,14 @@ def apply_incomplete_interview_caps(
         criteria[0] = min(criteria[0], 3)
         total_cap = 18
 
+    if off_topic_strikes >= 1:
+        criteria[4] = min(criteria[4], 3)
+    if off_topic_strikes >= 2:
+        criteria[4] = min(criteria[4], 2)
+    if off_topic_strikes >= 3:
+        criteria[4] = min(criteria[4], 1)
+        criteria[0] = 0
+
     criteria = cap_total(criteria, total_cap)
     total = sum(criteria)
     percent = int(round((total / 20) * 100))
@@ -653,7 +858,7 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def no_cache_headers(request: Request, call_next):  # type: ignore[no-untyped-def]
         if pin_required():
-            allowed = {"/", "/health", "/auth", "/auth/status", "/tts/status"}
+            allowed = {"/", "/health", "/auth", "/auth/status", "/tts/status", "/verify-report"}
             if request.url.path.startswith("/static"):
                 allowed.add(request.url.path)
             if request.method != "OPTIONS" and request.url.path not in allowed:
@@ -749,6 +954,23 @@ def create_app() -> FastAPI:
                 },
             ) from exc
         return QuestionResponse(questions=questions)
+
+    @app.get("/attempts/status", response_model=AttemptStatusResponse)
+    async def attempts_status(student_name: str, role_name: str, request: Request) -> AttemptStatusResponse:
+        student = student_name.strip()
+        role = role_name.strip()
+        if not student or not role:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "ATTEMPT_IDENTITY_REQUIRED",
+                    "message": "student_name and role_name are required.",
+                    "retryable": False,
+                },
+            )
+        key = normalize_attempt_key(student, role)
+        store = parse_attempt_cookie(request.cookies.get(ATTEMPTS_COOKIE_NAME))
+        return build_attempt_status(store.get(key, 0))
 
     @app.post("/transcribe")
     async def transcribe_audio(
@@ -956,7 +1178,7 @@ def create_app() -> FastAPI:
         )
 
     @app.post("/evaluate", response_model=EvaluateResponse)
-    async def evaluate_interview(payload: EvaluateRequest) -> EvaluateResponse:
+    async def evaluate_interview(payload: EvaluateRequest, request: Request, http_response: Response) -> EvaluateResponse:
         if not payload.transcript:
             raise HTTPException(
                 status_code=400,
@@ -965,6 +1187,78 @@ def create_app() -> FastAPI:
                     "message": "Transcript must contain at least one turn.",
                     "retryable": False,
                 },
+            )
+
+        attempt_key = normalize_attempt_key(payload.student_name, payload.role_name)
+        attempt_store = parse_attempt_cookie(request.cookies.get(ATTEMPTS_COOKIE_NAME))
+        attempts_used = attempt_store.get(attempt_key, 0)
+        attempt_status = build_attempt_status(attempts_used)
+        if attempt_status.is_locked:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "ATTEMPTS_EXHAUSTED",
+                    "message": (
+                        f"All {MAX_ATTEMPTS} attempts are already used for this student/role. "
+                        "No additional report can be generated."
+                    ),
+                    "retryable": False,
+                },
+            )
+
+        attempt_number = attempt_status.next_attempt_number
+        is_assessment_attempt = attempt_number == MAX_ATTEMPTS
+        attempt_result = AttemptResult(
+            attempt_number=attempt_number,
+            max_attempts=MAX_ATTEMPTS,
+            is_final_attempt=is_assessment_attempt,
+            is_assessment_attempt=is_assessment_attempt,
+        )
+
+        def finalize_response(report_text: str, scores: ScorePayload) -> EvaluateResponse:
+            attempt_banner = (
+                f"Attempt {attempt_number}/{MAX_ATTEMPTS} "
+                + (
+                    "(FINAL - this grade counts for assessment)."
+                    if is_assessment_attempt
+                    else "(practice attempt - formative feedback)."
+                )
+            )
+            full_report_text = f"{attempt_banner}\n\n{report_text}".strip()
+            report_payload: dict[str, object] = {
+                "report_version": 1,
+                "issued_at": now_iso_utc(),
+                "student_name": payload.student_name,
+                "role_name": payload.role_name,
+                "attempt": attempt_result.model_dump(),
+                "duration_seconds": payload.duration_seconds,
+                "off_topic_strikes": payload.off_topic_strikes,
+                "answered_questions": payload.answered_questions,
+                "total_questions": payload.total_questions,
+                "interview_completed": payload.interview_completed,
+                "scores": scores.model_dump(),
+                "report_text": full_report_text,
+                "transcript_sha256": hashlib.sha256(
+                    canonical_json([turn.model_dump() for turn in payload.transcript]).encode("utf-8")
+                ).hexdigest(),
+            }
+            report_package = create_signed_report_package(report_payload)
+
+            attempt_store[attempt_key] = attempt_number
+            max_age = max(1, ATTEMPTS_COOKIE_TTL_HOURS) * 3600
+            http_response.set_cookie(
+                ATTEMPTS_COOKIE_NAME,
+                serialize_attempt_cookie(attempt_store),
+                max_age=max_age,
+                httponly=True,
+                samesite="lax",
+            )
+
+            return EvaluateResponse(
+                report_text=full_report_text,
+                scores=scores,
+                attempt=attempt_result,
+                report_package=report_package,
             )
 
         eval_template = _load_text(PATHS.evaluation_prompt)
@@ -994,11 +1288,11 @@ def create_app() -> FastAPI:
                         "type": "object",
                         "additionalProperties": False,
                         "properties": {
-                            "c1": {"type": "integer", "minimum": 1, "maximum": 4},
-                            "c2": {"type": "integer", "minimum": 1, "maximum": 4},
-                            "c3": {"type": "integer", "minimum": 1, "maximum": 4},
-                            "c4": {"type": "integer", "minimum": 1, "maximum": 4},
-                            "c5": {"type": "integer", "minimum": 1, "maximum": 4},
+                            "c1": {"type": "integer", "minimum": 0, "maximum": 4},
+                            "c2": {"type": "integer", "minimum": 0, "maximum": 4},
+                            "c3": {"type": "integer", "minimum": 0, "maximum": 4},
+                            "c4": {"type": "integer", "minimum": 0, "maximum": 4},
+                            "c5": {"type": "integer", "minimum": 0, "maximum": 4},
                             "total": {"type": "integer", "minimum": 0, "maximum": 20},
                             "percent": {"type": "integer", "minimum": 0, "maximum": 100},
                             "grade": {"type": "string"},
@@ -1030,6 +1324,7 @@ def create_app() -> FastAPI:
                 payload.answered_questions,
                 payload.total_questions,
                 payload.interview_completed,
+                payload.off_topic_strikes,
             )
             report_text = validated.report_text
             if caps_applied:
@@ -1038,7 +1333,7 @@ def create_app() -> FastAPI:
                     "main questions answered). Rubric caps were applied to prevent over-scoring.\n\n"
                 )
                 report_text = f"{note}{report_text}"
-            return EvaluateResponse(report_text=report_text, scores=adjusted_scores)
+            return finalize_response(report_text=report_text, scores=adjusted_scores)
         except Exception as structured_exc:  # noqa: BLE001
             logger.warning("Structured evaluation failed, using fallback: %s", structured_exc)
             try:
@@ -1064,7 +1359,7 @@ def create_app() -> FastAPI:
                         "main questions answered). Scores unavailable in fallback mode.\n\n"
                     )
                     report_text = f"{note}{report_text}"
-                return EvaluateResponse(report_text=report_text, scores=null_scores())
+                return finalize_response(report_text=report_text, scores=null_scores())
             except Exception as fallback_exc:  # noqa: BLE001
                 raise HTTPException(
                     status_code=502,
@@ -1074,6 +1369,16 @@ def create_app() -> FastAPI:
                         "retryable": True,
                     },
                 ) from fallback_exc
+
+    @app.post("/verify-report", response_model=VerifyReportResponse)
+    async def verify_report(report_package: SignedReportPackage) -> VerifyReportResponse:
+        valid, reason = verify_signed_report_package(report_package)
+        return VerifyReportResponse(
+            valid=valid,
+            report_id=report_package.report_id,
+            reason=reason,
+            verified_at=now_iso_utc(),
+        )
 
     return app
 

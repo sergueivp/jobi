@@ -144,13 +144,13 @@ For a 12-minute interview, OpenAI TTS would cost approximately €0.08–0.12 pe
 
 | Code | Criterion | Scale |
 |---|---|---|
-| C1 | Task Completion | 1–4 |
-| C2 | Fluency & Coherence | 1–4 |
-| C3 | Lexical Resource | 1–4 |
-| C4 | Grammatical Range & Accuracy | 1–4 |
-| C5 | Professional Register | 1–4 |
+| C1 | Task Completion | 0–4 |
+| C2 | Fluency & Coherence | 0–4 |
+| C3 | Lexical Resource | 0–4 |
+| C4 | Grammatical Range & Accuracy | 0–4 |
+| C5 | Professional Register | 0–4 |
 
-Total: 20 points. CEFR mapping: 17–20 = B2+ / 13–16 = B2 / 9–12 = B1.2 / ≤8 = B1.1 or below.
+Total: 20 points. A total of 0 is reported as no assessable performance (no CEFR band). CEFR mapping for totals 1–20 remains: 17–20 = B2+ / 13–16 = B2 / 9–12 = B1.2 / ≤8 = B1.1 or below.
 
 The evaluation prompt instructs the model to: score each criterion with a justification of 1–2 sentences, flag specific quoted utterances from the transcript (both strengths and errors), provide corrected versions of errors, and note the number of off-topic attempts (feeds C5).
 

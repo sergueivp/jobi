@@ -75,7 +75,7 @@ The report scores the student across five CEFR-mapped criteria:
 | C4 | Grammatical Range & Accuracy | Was grammar used accurately and with appropriate complexity? |
 | C5 | Professional Register | Did the student maintain appropriate formal register throughout? |
 
-Each criterion is scored 1–4. Total: 20 points. The report maps the total to a CEFR band and includes specific language samples from what the student said — both strengths and errors — with corrected versions.
+Each criterion is scored 0–4. Total: 20 points. A score of 0 is valid (no assessable performance). The report maps totals 1–20 to CEFR bands and includes specific language samples from what the student said — both strengths and errors — with corrected versions.
 
 ---
 
@@ -168,9 +168,26 @@ Open [http://localhost:8000](http://localhost:8000).
 ## API Endpoints
 
 - `GET /questions` → returns parsed Q1–Q7 from `prompts/interview_system_prompt.txt`
+- `GET /attempts/status` → returns attempt usage (max 3 attempts per student/role)
 - `POST /transcribe` → Whisper transcription for recorded audio
 - `POST /chat` → Alex reply + `is_probe` + `[INTERVIEW_COMPLETE]` detection
-- `POST /evaluate` → CEFR report + structured scores (with null-score fallback)
+- `POST /evaluate` → CEFR report + structured scores + signed report package
+- `POST /verify-report` → verifies server signature for submitted report JSON
+
+## Signed Report Verification
+
+Each generated report now includes a `report_package` with `payload` + `signature`.
+For submission integrity (e.g., PoliformaT), ask students to upload that JSON package.
+
+Teacher verification:
+
+```bash
+curl -X POST https://<your-space>.hf.space/verify-report \
+  -H "Content-Type: application/json" \
+  -d @student-report-package.json
+```
+
+The endpoint returns `{"valid": true/false, ...}`.
 
 ## Test Suite
 
@@ -186,6 +203,9 @@ Current baseline: `7 passed`.
 ## Project Maintenance
 
 To keep decisions and changes serialized and easy to reuse:
+
+- **Rubric source:** [`RUBRIC.md`](./RUBRIC.md)  
+  Canonical assessment rubric (v2) used to align evaluation logic and prompt behavior.
 
 - **Good practices log:** [`MEMORY.md`](./MEMORY.md)  
   Records validated solutions and architectural choices so we don’t re‑solve the same problems.

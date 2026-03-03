@@ -70,3 +70,27 @@ This file is **for the assistant’s use**. It captures validated solutions and 
 **Decision:** Add a setup-screen mic check with live meter and a 3s playback sample.
 **Evidence:** Confirms mic permission and volume before starting the interview.
 **Reuse rule:** Keep a visible mic test on audio-first assessments.
+
+### 2026-03-03 — Attempt policy enforcement (3 tries)
+**Context:** Students need adaptation attempts, but only the last attempt should count for grading.
+**Decision:** Enforce max 3 attempts per student/role server-side via signed cookie; warn explicitly before attempt 3.
+**Evidence:** Prevents accidental extra graded runs and keeps policy consistent across devices/sessions.
+**Reuse rule:** High-stakes attempt limits must be enforced on backend, not only in UI.
+
+### 2026-03-03 — Signed submission artifacts
+**Context:** Students can edit text reports before submission.
+**Decision:** Generate a server-signed JSON report package and verify with `POST /verify-report`.
+**Evidence:** Tampered report payload fails signature verification.
+**Reuse rule:** For graded artifacts, distribute signed machine-readable packages rather than plain text/PDF only.
+
+### 2026-03-03 — Transparent attempt UX
+**Context:** Students were unsure what to submit and when grading applies.
+**Decision:** Show attempt policy at setup, display attempt counter, warn before final attempt, disable new runs after final attempt.
+**Evidence:** Removes ambiguity around practice vs graded runs.
+**Reuse rule:** In assessment apps, policy transparency must be visible on first screen and at decision points.
+
+### 2026-03-03 — Rubric v2 zero-score semantics
+**Context:** Rubric v1 inflated results for silent/non-scorable output.
+**Decision:** Move to 0-4 scale, support total=0 as no assessable performance, and align strike behavior with rubric v2.
+**Evidence:** Silent/incomplete edge cases now produce explicit zero-performance outcomes instead of minimum 1-point inflation.
+**Reuse rule:** If rubric allows 0, validation schema, grade mapping, and cap logic must all support 0 consistently.

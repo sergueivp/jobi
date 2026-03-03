@@ -73,11 +73,16 @@ const state = {
   recording: false,
   processing: false,
   reportPlainText: "",
+  attemptStatus: null,
+  attemptResult: null,
+  signedReportPackage: null,
   isMobile: false,
 };
 
 const ui = {
   statusLine: document.getElementById("status-line"),
+  attemptPolicy: document.getElementById("attempt-policy"),
+  attemptCounter: document.getElementById("attempt-counter"),
   setupScreen: document.getElementById("setup-screen"),
   interviewScreen: document.getElementById("interview-screen"),
   reportScreen: document.getElementById("report-screen"),
@@ -122,6 +127,7 @@ const ui = {
   reportMeta: document.getElementById("report-meta"),
   reportText: document.getElementById("report-text"),
   copyReportBtn: document.getElementById("copy-report-btn"),
+  downloadReportBtn: document.getElementById("download-report-btn"),
   printReportBtn: document.getElementById("print-report-btn"),
   newInterviewBtn: document.getElementById("new-interview-btn"),
 };
@@ -182,6 +188,7 @@ let lastChatMs = null;
 let lastTtsMs = null;
 let autoListenStartedAt = 0;
 let mediaInitPromise = null;
+let attemptStatusTimer = null;
 
 function setVisualState(mode) {
   const isSpeaking = mode === "speaking";
@@ -354,6 +361,28 @@ function pickRecorderMimeType() {
 
 function setStatus(text) {
   ui.statusLine.textContent = text;
+}
+
+function setAttemptCounter(text) {
+  if (!ui.attemptCounter) {
+    return;
+  }
+  ui.attemptCounter.textContent = text;
+}
+
+function renderAttemptStatus(status) {
+  if (!status) {
+    setAttemptCounter("Enter your details to view your current attempt status.");
+    return;
+  }
+  if (status.is_locked) {
+    setAttemptCounter(`Attempts used: ${status.attempts_used}/${status.max_attempts}. No attempts left.`);
+    return;
+  }
+  const mode = status.is_final_attempt ? "Final (graded)" : "Practice";
+  setAttemptCounter(
+    `Attempts used: ${status.attempts_used}/${status.max_attempts}. Next: attempt ${status.next_attempt_number}/${status.max_attempts} (${mode}).`,
+  );
 }
 
 function authHeaders(extra = {}) {
@@ -811,6 +840,7 @@ function handlePinRequired(message = "Enter the class PIN to continue.") {
   state.pinUnlocked = false;
   showPinBlock(true);
   setPinStatus(message);
+  setAttemptCounter("Enter the class PIN to view your attempt status.");
   updateBeginEnabled();
 }
 
@@ -836,6 +866,7 @@ async function tryUnlockPin(pin) {
     await fetchTtsStatus();
     setPinStatus("Unlocked.", true);
     showPinBlock(false);
+    scheduleAttemptStatusRefresh();
     return true;
   } catch (error) {
     setPinStatus(error.message || "Incorrect PIN.");
@@ -948,6 +979,62 @@ async function fetchQuestions() {
   renderDots();
 }
 
+async function fetchAttemptStatus(studentName, roleName) {
+  const params = new URLSearchParams({
+    student_name: studentName,
+    role_name: roleName,
+  });
+  const response = await fetch(`/attempts/status?${params.toString()}`, {
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    if (response.status === 401) {
+      handlePinRequired();
+      throw new Error("PIN required");
+    }
+    let message = "Failed to load attempt status";
+    try {
+      const err = await response.json();
+      message = err?.detail?.message || message;
+    } catch (_error) {
+      // Ignore JSON parse failures.
+    }
+    throw new Error(message);
+  }
+  const payload = await response.json();
+  state.attemptStatus = payload;
+  renderAttemptStatus(payload);
+  return payload;
+}
+
+function clearAttemptStatusTimer() {
+  if (attemptStatusTimer) {
+    window.clearTimeout(attemptStatusTimer);
+    attemptStatusTimer = null;
+  }
+}
+
+function scheduleAttemptStatusRefresh() {
+  clearAttemptStatusTimer();
+  const student = ui.studentName?.value.trim() || "";
+  const role = ui.roleName?.value.trim() || "";
+  if (!student || !role) {
+    renderAttemptStatus(null);
+    return;
+  }
+  if (state.pinRequired && !state.pinUnlocked) {
+    setAttemptCounter("Enter the class PIN to view your attempt status.");
+    return;
+  }
+  attemptStatusTimer = window.setTimeout(async () => {
+    try {
+      await fetchAttemptStatus(student, role);
+    } catch (_error) {
+      setAttemptCounter("Attempt status unavailable right now.");
+    }
+  }, 280);
+}
+
 async function fetchTtsStatus() {
   try {
     const response = await fetch("/tts/status", { headers: authHeaders() });
@@ -977,8 +1064,10 @@ async function fetchPinStatus() {
     if (state.pinRequired && !state.pinUnlocked) {
       showPinBlock(true);
       setPinStatus("Enter the class PIN to unlock this interview.");
+      setAttemptCounter("Enter the class PIN to view your attempt status.");
     } else {
       showPinBlock(false);
+      scheduleAttemptStatusRefresh();
     }
   } catch (_error) {
     // Non-fatal: allow access if status check fails.
@@ -1005,6 +1094,7 @@ function updateBeginEnabled() {
     ui.roleName.value.trim().length > 0 &&
     (!state.pinRequired || state.pinUnlocked || (ui.pinCode && ui.pinCode.value.trim().length > 0));
   ui.beginBtn.disabled = !ready;
+  scheduleAttemptStatusRefresh();
 }
 
 function loadVoices() {
@@ -2066,11 +2156,46 @@ async function finishInterview(reason = "completed") {
       120000,
     );
 
+    state.attemptResult = payload.attempt || null;
+    state.signedReportPackage = payload.report_package || null;
+    const attemptLabel = state.attemptResult
+      ? state.attemptResult.is_assessment_attempt
+        ? `Final attempt ${state.attemptResult.attempt_number}/${state.attemptResult.max_attempts}`
+        : `Practice attempt ${state.attemptResult.attempt_number}/${state.attemptResult.max_attempts}`
+      : "";
+    if (ui.reportMeta) {
+      ui.reportMeta.textContent = `${state.roleName || "Role"} · TerraTech Geospatial Solutions · ${dateStr} · ${formatReportDuration(durationSeconds)}${attemptLabel ? ` · ${attemptLabel}` : ""}`;
+    }
+    if (ui.downloadReportBtn) {
+      ui.downloadReportBtn.disabled = !state.signedReportPackage;
+    }
+    if (ui.newInterviewBtn) {
+      if (state.attemptResult?.is_assessment_attempt) {
+        ui.newInterviewBtn.disabled = true;
+        ui.newInterviewBtn.textContent = "Attempts Completed";
+      } else if (state.attemptResult?.attempt_number === 2) {
+        ui.newInterviewBtn.disabled = false;
+        ui.newInterviewBtn.textContent = "New Interview (Final Attempt)";
+      } else {
+        ui.newInterviewBtn.disabled = false;
+        ui.newInterviewBtn.textContent = "New Interview (Practice)";
+      }
+    }
+
     renderScores(payload.scores);
     renderReportText(payload.report_text || "No report returned.");
     setStatus("Report ready.");
   } catch (error) {
     ui.scoreGrid.classList.add("hidden");
+    state.attemptResult = null;
+    state.signedReportPackage = null;
+    if (ui.downloadReportBtn) {
+      ui.downloadReportBtn.disabled = true;
+    }
+    if (ui.newInterviewBtn) {
+      ui.newInterviewBtn.disabled = false;
+      ui.newInterviewBtn.textContent = "New Interview";
+    }
     renderReportText(`Failed to generate report: ${error.message}`);
     setStatus("Report generation failed.");
   }
@@ -2182,6 +2307,36 @@ function renderReportText(text) {
   ui.reportText.innerHTML = html;
 }
 
+function sanitizeFilePart(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function downloadSignedReportPackage() {
+  if (!state.signedReportPackage) {
+    setStatus("Signed report package is unavailable.");
+    return;
+  }
+  const studentPart = sanitizeFilePart(state.studentName || "candidate") || "candidate";
+  const attemptPart = state.attemptResult?.attempt_number || "x";
+  const day = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  const fileName = `terratech-report-${studentPart}-attempt-${attemptPart}-${day}.json`;
+  const blob = new Blob([JSON.stringify(state.signedReportPackage, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+  setStatus("Signed report downloaded.");
+}
+
 async function handleStudentSubmit(textOverride = null) {
   if (state.processing || state.phase !== "interview") {
     return;
@@ -2287,6 +2442,9 @@ async function handleStudentSubmit(textOverride = null) {
 }
 
 async function beginInterview() {
+  const studentName = ui.studentName.value.trim();
+  const roleName = ui.roleName.value.trim();
+
   if (state.pinRequired && !state.pinUnlocked) {
     const pin = ui.pinCode ? ui.pinCode.value.trim() : "";
     const unlocked = await tryUnlockPin(pin);
@@ -2306,10 +2464,26 @@ async function beginInterview() {
       return;
     }
   }
+
+  const attemptStatus = await fetchAttemptStatus(studentName, roleName);
+  if (attemptStatus.is_locked) {
+    setStatus(`All ${attemptStatus.max_attempts} attempts are already used for this student/role.`);
+    return;
+  }
+  if (attemptStatus.is_final_attempt) {
+    const proceed = window.confirm(
+      `Warning: this is final attempt ${attemptStatus.next_attempt_number}/${attemptStatus.max_attempts}. This result counts for assessment. Continue?`,
+    );
+    if (!proceed) {
+      setStatus("Final attempt was canceled. You can start later.");
+      return;
+    }
+  }
+
   stopMicTest();
   clearMicPlayback();
-  state.studentName = ui.studentName.value.trim();
-  state.roleName = ui.roleName.value.trim();
+  state.studentName = studentName;
+  state.roleName = roleName;
   state.phase = "interview";
   state.questionIndex = 0;
   state.history = [];
@@ -2319,6 +2493,8 @@ async function beginInterview() {
   state.inClosing = false;
   state.pendingStudentText = "";
   state.reportPlainText = "";
+  state.attemptResult = null;
+  state.signedReportPackage = null;
   state.startedAt = Date.now();
   state.endedAt = 0;
 
@@ -2428,6 +2604,12 @@ function attachEvents() {
     });
   }
 
+  if (ui.downloadReportBtn) {
+    ui.downloadReportBtn.addEventListener("click", () => {
+      downloadSignedReportPackage();
+    });
+  }
+
   if (ui.printReportBtn) {
     ui.printReportBtn.addEventListener("click", () => {
       window.print();
@@ -2436,6 +2618,18 @@ function attachEvents() {
 
   if (ui.newInterviewBtn) {
     ui.newInterviewBtn.addEventListener("click", () => {
+      if (state.attemptResult?.attempt_number === 2 && !state.attemptResult?.is_assessment_attempt) {
+        const proceed = window.confirm(
+          "Your next run is attempt 3/3 (final, graded). Continue to final attempt?",
+        );
+        if (!proceed) {
+          return;
+        }
+      }
+      if (state.attemptResult?.is_assessment_attempt) {
+        setStatus("Final graded attempt already completed.");
+        return;
+      }
       window.location.reload();
     });
   }
@@ -2445,6 +2639,14 @@ async function initialize() {
   showScreen(ui.setupScreen);
   detectInputMode();
   attachEvents();
+  if (ui.downloadReportBtn) {
+    ui.downloadReportBtn.disabled = true;
+  }
+  if (ui.newInterviewBtn) {
+    ui.newInterviewBtn.disabled = false;
+    ui.newInterviewBtn.textContent = "New Interview";
+  }
+  renderAttemptStatus(null);
 
   if (window.speechSynthesis) {
     unlockAudioOutput();
