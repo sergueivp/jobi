@@ -25,6 +25,7 @@ const BARGE_IN_IGNORE_MS = 900;
 const BARGE_IN_NOISE_MAX_RISE_DB = 2.5;
 const PREFERRED_VOICE_NAME = "Google US English";
 const PREFERRED_VOICE_LANG = "en-us";
+const FORCE_SERVER_VOICE = true;
 const RECORDER_MIME_CANDIDATES = [
   "audio/webm;codecs=opus",
   "audio/webm",
@@ -636,6 +637,10 @@ async function playServerTts(text, onStart = null) {
 
 async function runAudioTest() {
   if (!window.speechSynthesis) {
+    if (!state.serverTtsAvailable) {
+      setAudioTestStatus("Server voice is unavailable on this deployment.");
+      return;
+    }
     setAudioTestStatus("Audio output is not supported in this browser.");
     return;
   }
@@ -661,6 +666,14 @@ async function runAudioTest() {
       return;
     }
     setAudioTestStatus("Server voice failed. Check network/API key or server TTS config.");
+    if (ui.audioTestBtn) {
+      ui.audioTestBtn.disabled = false;
+    }
+    return;
+  }
+
+  if (FORCE_SERVER_VOICE) {
+    setAudioTestStatus("Server voice is unavailable on this deployment.");
     if (ui.audioTestBtn) {
       ui.audioTestBtn.disabled = false;
     }
@@ -1110,6 +1123,10 @@ async function speak(text) {
   let spokenOk = false;
   try {
     const serverOnly = state.serverTtsAvailable;
+    if (FORCE_SERVER_VOICE && !serverOnly) {
+      setStatus("Server voice is unavailable on this deployment.");
+      return;
+    }
     if (serverOnly) {
       spokenOk = await playServerTts(clean, onSpeechStart);
       if (spokenOk) {
@@ -1117,7 +1134,8 @@ async function speak(text) {
       }
     }
 
-    const useSpeechSynthesis = !serverOnly && window.speechSynthesis && !state.speechSynthesisBlocked;
+    const useSpeechSynthesis =
+      !FORCE_SERVER_VOICE && !serverOnly && window.speechSynthesis && !state.speechSynthesisBlocked;
     if (!spokenOk && useSpeechSynthesis) {
       await ensurePreferredVoice(1200);
       const startGuardMs = 1600;
