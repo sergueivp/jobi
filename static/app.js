@@ -660,6 +660,11 @@ async function runAudioTest() {
       }
       return;
     }
+    setAudioTestStatus("Server voice failed. Check network/API key or server TTS config.");
+    if (ui.audioTestBtn) {
+      ui.audioTestBtn.disabled = false;
+    }
+    return;
   }
 
   await ensurePreferredVoice(1200);
@@ -862,6 +867,10 @@ async function fetchTtsStatus() {
     }
     const payload = await response.json();
     state.serverTtsAvailable = Boolean(payload?.enabled);
+    if (state.serverTtsAvailable) {
+      // Lock to server voice quality when available.
+      state.speechSynthesisBlocked = true;
+    }
   } catch (_error) {
     // Non-fatal.
   }
@@ -1049,7 +1058,7 @@ function runSynthesisUtterance(clean, voiceToUse = null, onStart = null, startGu
 }
 
 async function speak(text) {
-  const clean = text.trim();
+  const clean = collapseImmediateRepeat(text);
   // Keep interview stage audio-first: do not render full assistant utterances on screen.
   setAudioFallback("", false);
 
@@ -1100,14 +1109,15 @@ async function speak(text) {
 
   let spokenOk = false;
   try {
-    if (state.serverTtsAvailable) {
+    const serverOnly = state.serverTtsAvailable;
+    if (serverOnly) {
       spokenOk = await playServerTts(clean, onSpeechStart);
       if (spokenOk) {
         state.speechSynthesisBlocked = true;
       }
     }
 
-    const useSpeechSynthesis = window.speechSynthesis && !state.speechSynthesisBlocked;
+    const useSpeechSynthesis = !serverOnly && window.speechSynthesis && !state.speechSynthesisBlocked;
     if (!spokenOk && useSpeechSynthesis) {
       await ensurePreferredVoice(1200);
       const startGuardMs = 1600;
@@ -1116,13 +1126,6 @@ async function speak(text) {
       if (!firstTry.ok) {
         const fallbackTry = await runSynthesisUtterance(clean, null, onSpeechStart, startGuardMs);
         spokenOk = fallbackTry.ok;
-      }
-    }
-
-    if (!spokenOk && state.serverTtsAvailable) {
-      spokenOk = await playServerTts(clean, onSpeechStart);
-      if (spokenOk) {
-        state.speechSynthesisBlocked = true;
       }
     }
   } finally {
@@ -1135,7 +1138,11 @@ async function speak(text) {
     if (localToken === speechToken) {
       responsePending = false;
     }
-    setStatus("Audio output failed. Click Replay to hear Alex.");
+    if (state.serverTtsAvailable) {
+      setStatus("Server voice failed. Check network/API key or server TTS config.");
+    } else {
+      setStatus("Audio output failed. Click Replay to hear Alex.");
+    }
     setAudioFallback(clean, true);
   }
 
@@ -1155,6 +1162,32 @@ async function speak(text) {
 
 function stripCompleteTag(reply) {
   return reply.replace("[INTERVIEW_COMPLETE]", "").trim();
+}
+
+function collapseImmediateRepeat(text) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) {
+    return "";
+  }
+  const parts = trimmed.split(/(?<=[.!?])\s+/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 2) {
+    return trimmed;
+  }
+
+  const normalize = (value) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const deduped = [];
+  for (const part of parts) {
+    if (!deduped.length || normalize(part) !== normalize(deduped[deduped.length - 1])) {
+      deduped.push(part);
+    }
+  }
+  return deduped.join(" ");
 }
 
 function normalizeForQuestionMatch(text) {
@@ -2057,7 +2090,7 @@ async function handleStudentSubmit(textOverride = null) {
 
   try {
     const chat = await runChat(text);
-    const cleanReply = stripCompleteTag(chat.reply || "");
+    const cleanReply = collapseImmediateRepeat(stripCompleteTag(chat.reply || ""));
 
     if (cleanReply) {
       pushTurn("assistant", cleanReply);

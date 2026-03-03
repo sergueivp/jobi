@@ -28,7 +28,7 @@ DEFAULT_EVAL_MODEL = os.getenv("MODEL_EVAL", "gpt-4o")
 DEFAULT_WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-1")
 ACCESS_PIN = os.getenv("ACCESS_PIN", "").strip()
 ACCESS_PIN_TTL_HOURS = int(os.getenv("ACCESS_PIN_TTL_HOURS", "168"))
-SERVER_TTS_ENABLED = os.getenv("SERVER_TTS_ENABLED", "false").lower() in {"1", "true", "yes"}
+SERVER_TTS_ENABLED = os.getenv("SERVER_TTS_ENABLED", "true").lower() in {"1", "true", "yes"}
 TTS_MODEL = os.getenv("TTS_MODEL", "gpt-4o-mini-tts")
 TTS_VOICE = os.getenv("TTS_VOICE", "alloy")
 
@@ -330,7 +330,7 @@ def pin_required() -> bool:
 
 
 def tts_enabled() -> bool:
-    return SERVER_TTS_ENABLED
+    return SERVER_TTS_ENABLED and bool(os.getenv("OPENAI_API_KEY"))
 
 
 def read_audio_bytes(result: object) -> bytes:
