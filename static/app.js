@@ -177,6 +177,8 @@ let pendingStopAction = "auto"; // auto | send | restart
 let lastTranscribeMs = null;
 let lastChatMs = null;
 let lastTtsMs = null;
+let autoListenStartedAt = 0;
+let mediaInitPromise = null;
 
 function setVisualState(mode) {
   const isSpeaking = mode === "speaking";
@@ -319,7 +321,7 @@ function startBargeInMonitor() {
       speaking = false;
       setVisualState("listening");
       stopBargeInMonitor();
-      scheduleAutoListen(0);
+      void scheduleAutoListen(0);
       return;
     }
 
@@ -647,38 +649,50 @@ async function runAudioTest() {
   if (window.speechSynthesis.paused) {
     window.speechSynthesis.resume();
   }
-  await ensurePreferredVoice();
-  setAudioTestStatus("Playing test...");
+  const sample = "Audio check. If you hear this, Alex will be audible.";
+
+  // Prefer server voice first when available to avoid slow browser-voice fallbacks.
+  if (state.serverTtsAvailable) {
+    setAudioTestStatus("Playing server voice test...");
+    const serverOk = await playServerTts(sample);
+    if (serverOk) {
+      setAudioTestStatus("Server voice check passed.", true);
+      state.speechSynthesisBlocked = true;
+      if (ui.audioTestBtn) {
+        ui.audioTestBtn.disabled = false;
+      }
+      return;
+    }
+  }
+
+  await ensurePreferredVoice(1200);
+  setAudioTestStatus("Playing browser voice test...");
   const voices = window.speechSynthesis.getVoices?.() || [];
   if (!voices.length) {
-    setAudioTestStatus("No voices available. Try Chrome or open in a new tab.");
+    const beepOk = await playBeep();
+    if (beepOk) {
+      setAudioTestStatus("Beep played. Speech voice is blocked or unavailable.");
+      state.speechSynthesisBlocked = true;
+    } else {
+      setAudioTestStatus("No voices available. Try Chrome or open in a new tab.");
+    }
     if (ui.audioTestBtn) {
       ui.audioTestBtn.disabled = false;
     }
     return;
   }
-  const sample = "Audio check. If you hear this, Alex will be audible.";
-  const result = await runSynthesisUtterance(sample, activeVoice);
+
+  const result = await runSynthesisUtterance(sample, activeVoice, null, 1600);
   if (result.ok) {
     setAudioTestStatus("Audio check passed.", true);
     state.speechSynthesisBlocked = false;
   } else {
-    if (state.serverTtsAvailable) {
-      const serverOk = await playServerTts(sample);
-      if (serverOk) {
-        setAudioTestStatus("Server voice check passed.", true);
-        state.speechSynthesisBlocked = true;
-      } else {
-        setAudioTestStatus("Server voice failed. Check network or API key.");
-      }
+    const beepOk = await playBeep();
+    if (beepOk) {
+      setAudioTestStatus("Beep played. Speech voice is blocked or unavailable.");
+      state.speechSynthesisBlocked = true;
     } else {
-      const beepOk = await playBeep();
-      if (beepOk) {
-        setAudioTestStatus("Beep played. Speech voice is blocked or unavailable.");
-        state.speechSynthesisBlocked = true;
-      } else {
-        setAudioTestStatus("No audio heard. Check system volume or browser permissions.");
-      }
+      setAudioTestStatus("No audio heard. Check system volume or browser permissions.");
     }
   }
   if (ui.audioTestBtn) {
@@ -824,7 +838,10 @@ function renderDots() {
 }
 
 async function fetchQuestions() {
-  const response = await fetch("/questions", { headers: authHeaders() });
+  const response =
+    state.pinRequired && state.pinToken
+      ? await fetch("/questions", { headers: authHeaders() })
+      : await fetch("/questions");
   if (!response.ok) {
     if (response.status === 401) {
       handlePinRequired();
@@ -1089,30 +1106,36 @@ async function speak(text) {
   };
 
   let spokenOk = false;
-  let started = false;
   try {
+    if (state.serverTtsAvailable) {
+      spokenOk = await playServerTts(clean, onSpeechStart);
+      if (spokenOk) {
+        state.speechSynthesisBlocked = true;
+      }
+    }
+
     const useSpeechSynthesis = window.speechSynthesis && !state.speechSynthesisBlocked;
-    if (useSpeechSynthesis) {
-      await ensurePreferredVoice();
-      const startGuardMs = state.serverTtsAvailable ? 2000 : 4000;
+    if (!spokenOk && useSpeechSynthesis) {
+      await ensurePreferredVoice(1200);
+      const startGuardMs = 1600;
       const firstTry = await runSynthesisUtterance(clean, activeVoice, onSpeechStart, startGuardMs);
       spokenOk = firstTry.ok;
-      started = firstTry.started;
-      if (!firstTry.ok && !started) {
+      if (!firstTry.ok) {
         const fallbackTry = await runSynthesisUtterance(clean, null, onSpeechStart, startGuardMs);
         spokenOk = fallbackTry.ok;
-        started = fallbackTry.started;
+      }
+    }
+
+    if (!spokenOk && state.serverTtsAvailable) {
+      spokenOk = await playServerTts(clean, onSpeechStart);
+      if (spokenOk) {
+        state.speechSynthesisBlocked = true;
       }
     }
   } finally {
     if (bargeStarted) {
       stopBargeInMonitor();
     }
-  }
-
-  if (!spokenOk && state.serverTtsAvailable) {
-    const serverOk = await playServerTts(clean, onSpeechStart);
-    spokenOk = serverOk;
   }
 
   if (!spokenOk) {
@@ -1213,13 +1236,26 @@ async function setupMediaStream() {
   if (mediaStream) {
     return;
   }
+  if (mediaInitPromise) {
+    await mediaInitPromise;
+    return;
+  }
 
-  mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  audioContext = new AudioContext();
-  analyser = audioContext.createAnalyser();
-  analyser.fftSize = 2048;
-  const source = audioContext.createMediaStreamSource(mediaStream);
-  source.connect(analyser);
+  mediaInitPromise = (async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaStream = stream;
+    audioContext = new AudioContext();
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 2048;
+    const source = audioContext.createMediaStreamSource(stream);
+    source.connect(analyser);
+  })();
+
+  try {
+    await mediaInitPromise;
+  } finally {
+    mediaInitPromise = null;
+  }
 }
 
 function stopSilenceMonitor() {
@@ -1246,6 +1282,27 @@ function haltRecordingForSpeech() {
   }
 }
 
+async function ensureMediaReady() {
+  if (!state.mediaSupported) {
+    return false;
+  }
+  if (mediaStream) {
+    return true;
+  }
+  try {
+    await setupMediaStream();
+    return Boolean(mediaStream);
+  } catch (_error) {
+    state.mediaSupported = false;
+    ui.recordingControls.classList.add("hidden");
+    ui.fallbackControls.classList.remove("hidden");
+    ui.submitAnswerBtn.disabled = !ui.fallbackInput.value.trim();
+    ui.recordingState.textContent =
+      "Microphone permission or support is unavailable. Use dictation/text input.";
+    return false;
+  }
+}
+
 function recorderIsRunning() {
   return Boolean((mediaRecorder && mediaRecorder.state === "recording") || state.recording);
 }
@@ -1260,9 +1317,10 @@ function canAutoListen() {
   );
 }
 
-function scheduleAutoListen(attempt = 0) {
+async function scheduleAutoListen(attempt = 0) {
   clearAutoListenRetry();
   if (!canAutoListen()) {
+    autoListenStartedAt = 0;
     return;
   }
 
@@ -1274,22 +1332,42 @@ function scheduleAutoListen(attempt = 0) {
   }
 
   if (attempt === 0) {
+    autoListenStartedAt = performance.now();
     ui.recordingState.textContent = "Preparing microphone...";
+  }
+
+  const mediaReady = await ensureMediaReady();
+  if (!mediaReady || !canAutoListen()) {
+    autoListenStartedAt = 0;
+    return;
   }
 
   startRecording();
 
   if (recorderIsRunning()) {
+    autoListenStartedAt = 0;
     return;
   }
 
-  if (attempt < 8) {
-    autoListenRetryTimer = window.setTimeout(() => scheduleAutoListen(attempt + 1), 220);
+  const waitMs = autoListenStartedAt ? performance.now() - autoListenStartedAt : 0;
+  if (waitMs >= 6000) {
+    autoListenStartedAt = 0;
+    ui.recordingState.textContent =
+      "Microphone is taking too long to start. Click Start Mic Test or allow mic access.";
+    return;
+  }
+
+  if (attempt < 12) {
+    autoListenRetryTimer = window.setTimeout(() => {
+      void scheduleAutoListen(attempt + 1);
+    }, 220);
     return;
   }
 
   ui.recordingState.textContent = "Microphone did not start. Retrying...";
-  autoListenRetryTimer = window.setTimeout(() => scheduleAutoListen(0), 700);
+  autoListenRetryTimer = window.setTimeout(() => {
+    void scheduleAutoListen(0);
+  }, 700);
 }
 
 function monitorSilence() {
@@ -1681,7 +1759,7 @@ function unlockStudentTurn(statusText = "", autoListen = true) {
     !state.recording
   ) {
     window.setTimeout(() => {
-      scheduleAutoListen(0);
+      void scheduleAutoListen(0);
     }, 120);
   }
 }
@@ -1700,7 +1778,7 @@ function startInteractionGuard() {
     }
     setStudentTurnEnabled(true);
     if (state.mediaSupported && !state.recording) {
-      scheduleAutoListen(0);
+      void scheduleAutoListen(0);
     }
   }, 1500);
 }
