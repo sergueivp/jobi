@@ -23,6 +23,7 @@ const BARGE_IN_RISE_DB = 9;
 const BARGE_IN_HOLD_MS = 280;
 const BARGE_IN_IGNORE_MS = 900;
 const BARGE_IN_NOISE_MAX_RISE_DB = 2.5;
+const MEDIA_PERMISSION_TIMEOUT_MS = 12000;
 const PREFERRED_VOICE_NAME = "Google US English";
 const PREFERRED_VOICE_LANG = "en-us";
 const FORCE_SERVER_VOICE = true;
@@ -1512,7 +1513,14 @@ async function setupMediaStream() {
   }
 
   mediaInitPromise = (async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await Promise.race([
+      navigator.mediaDevices.getUserMedia({ audio: true }),
+      new Promise((_, reject) => {
+        window.setTimeout(() => {
+          reject(new Error("MIC_PERMISSION_TIMEOUT"));
+        }, MEDIA_PERMISSION_TIMEOUT_MS);
+      }),
+    ]);
     mediaStream = stream;
     audioContext = new AudioContext();
     analyser = audioContext.createAnalyser();
@@ -1562,10 +1570,13 @@ async function ensureMediaReady() {
   try {
     await setupMediaStream();
     return Boolean(mediaStream);
-  } catch (_error) {
+  } catch (error) {
     state.mediaSupported = false;
-    ui.recordingState.textContent =
-      "Microphone permission or support is unavailable. Voice mode is required.";
+    const timedOut = String(error?.message || "").includes("MIC_PERMISSION_TIMEOUT");
+    const iframeNote = isInIframe() ? " Open this app in a new tab from PoliformaT and allow microphone access there." : "";
+    ui.recordingState.textContent = timedOut
+      ? `Microphone permission timed out.${iframeNote}`
+      : `Microphone permission or support is unavailable.${iframeNote}`;
     return false;
   }
 }
@@ -2556,9 +2567,11 @@ async function beginInterview() {
     setStatus("Voice mode requires microphone recording support. Please use a current Chrome/Safari browser.");
     return;
   }
+  setStatus("Preparing microphone...");
   const mediaReady = await ensureMediaReady();
   if (!mediaReady) {
-    setStatus("Microphone access is required for speaking mode. Please allow access and try again.");
+    const iframeNote = isInIframe() ? " Open this app in a new tab from PoliformaT." : "";
+    setStatus(`Microphone access is required for speaking mode.${iframeNote}`);
     return;
   }
 

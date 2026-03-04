@@ -130,3 +130,9 @@ This file is **for the assistant’s use**. It captures validated solutions and 
 **Decision:** Prompt now requires specific content-level reactions and recommends probe stems already recognized by backend probe detection.
 **Evidence:** Preserves deterministic flow while improving natural interviewer feedback quality.
 **Reuse rule:** If client logic depends on phrase-based classification, align prompt wording to those detectable stems.
+
+### 2026-03-04 — Managed-browser mic timeout guard
+**Context:** On institutional Chrome/LMS setups, `getUserMedia()` may hang without resolving, blocking interview start.
+**Decision:** Add a hard timeout for microphone permission and show explicit guidance to open in a new tab when inside LMS iframe.
+**Evidence:** Converts silent start hangs into actionable user feedback.
+**Reuse rule:** Any permission-gated async browser API should have a timeout and clear fallback instructions.
