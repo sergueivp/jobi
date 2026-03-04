@@ -124,3 +124,9 @@ This file is **for the assistant’s use**. It captures validated solutions and 
 **Decision:** Add HTTPS-based email transport (`Resend`) and auto-select it when configured; keep SMTP as optional fallback.
 **Evidence:** Email transport can run over standard HTTPS (`443`) where SMTP ports are unavailable.
 **Reuse rule:** For cloud-hosted classrooms, prefer HTTPS email APIs over raw SMTP.
+
+### 2026-03-04 — Rich meta-feedback without breaking probe logic
+**Context:** Alex replies became overly dry (`Right.`) because probes were pruned unless they matched deterministic detection stems.
+**Decision:** Prompt now requires specific content-level reactions and recommends probe stems already recognized by backend probe detection.
+**Evidence:** Preserves deterministic flow while improving natural interviewer feedback quality.
+**Reuse rule:** If client logic depends on phrase-based classification, align prompt wording to those detectable stems.

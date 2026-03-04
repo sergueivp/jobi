@@ -1504,9 +1504,9 @@ def create_app() -> FastAPI:
             "Reply in 1-3 sentences. Stay in character.\n"
             "Do not ask any canonical main interview questions (Q1-Q7) because the frontend controls question sequencing.\n"
             "Do not repeat or paraphrase the candidate's answer back to them.\n"
-            "Use natural short acknowledgments (for example: Right. Okay. I see.) and then either a probe or a concise transition.\n"
+            "Use specific content-level meta-feedback (name one skill, action, or challenge from the answer) and avoid bare one-word acknowledgments.\n"
             "Never include or restate the next canonical question in this reply.\n"
-            "At this step, provide only one of: concise acknowledgment, single probe follow-up, guardrail redirect, or final closure."
+            "At this step, provide only one of: specific content reaction, single probe follow-up, guardrail redirect, or final closure."
         )
 
         messages: list[dict[str, str]] = [
