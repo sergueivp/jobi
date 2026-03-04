@@ -56,6 +56,7 @@ DEFAULT_EVAL_MODEL = os.getenv("MODEL_EVAL", "gpt-4o")
 DEFAULT_WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-1")
 ACCESS_PIN = os.getenv("ACCESS_PIN", "").strip()
 ACCESS_PIN_TTL_HOURS = int(os.getenv("ACCESS_PIN_TTL_HOURS", "168"))
+PIN_COOKIE_NAME = "nt_pin"
 TTS_MODEL = os.getenv("TTS_MODEL", "gpt-4o-mini-tts")
 TTS_VOICE = os.getenv("TTS_VOICE", "alloy")
 MAX_ATTEMPTS = 3
@@ -615,6 +616,18 @@ def null_scores() -> ScorePayload:
 
 def pin_required() -> bool:
     return bool(ACCESS_PIN)
+
+
+def current_pin_cookie_value() -> str:
+    if not pin_required():
+        return ""
+    material = f"pin-cookie:{ACCESS_PIN}"
+    digest = hmac.new(
+        get_signing_secret().encode("utf-8"),
+        material.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:24]
+    return f"ok.{digest}"
 
 
 def tts_enabled() -> bool:
@@ -1215,7 +1228,9 @@ def create_app() -> FastAPI:
                 allowed.add(request.url.path)
             if request.method != "OPTIONS" and request.url.path not in allowed:
                 header_pin = request.headers.get("x-access-pin", "").strip()
-                pin_ok = request.cookies.get("nt_pin") == "ok" or (header_pin and header_pin == ACCESS_PIN)
+                pin_ok = request.cookies.get(PIN_COOKIE_NAME) == current_pin_cookie_value() or (
+                    header_pin and header_pin == ACCESS_PIN
+                )
                 if not pin_ok:
                     return JSONResponse(
                         status_code=401,
@@ -1313,8 +1328,8 @@ def create_app() -> FastAPI:
         max_age = max(1, ACCESS_PIN_TTL_HOURS) * 3600
         response = Response(status_code=204)
         response.set_cookie(
-            "nt_pin",
-            "ok",
+            PIN_COOKIE_NAME,
+            current_pin_cookie_value(),
             max_age=max_age,
             httponly=True,
             samesite="lax",

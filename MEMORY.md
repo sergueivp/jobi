@@ -142,3 +142,9 @@ This file is **for the assistant’s use**. It captures validated solutions and 
 **Decision:** Keep media mode retryable and surface specific failure reason (timeout/denied/unavailable) instead of flipping `mediaSupported=false`.
 **Evidence:** Users can grant permission and retry Begin Interview in the same page session.
 **Reuse rule:** Treat permission errors as recoverable unless the browser truly lacks the API.
+
+### 2026-03-04 — PIN rotation must invalidate unlocked cookies
+**Context:** A static cookie value (`nt_pin=ok`) allowed previously unlocked browsers to remain authorized after PIN changes.
+**Decision:** Bind cookie value to a signed digest of the active PIN and verify against current PIN at request time.
+**Evidence:** After rotating `1234 -> 3060`, old cookies now fail with `PIN_REQUIRED` until re-authenticated.
+**Reuse rule:** Auth cookies must be tied to current credential state to support revocation.

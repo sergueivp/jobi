@@ -58,6 +58,25 @@ def test_questions_endpoint_returns_500_on_parser_error(monkeypatch) -> None:
     assert payload["detail"]["code"] == "QUESTION_PARSE_ERROR"
 
 
+def test_pin_cookie_is_invalidated_when_pin_changes(monkeypatch) -> None:
+    monkeypatch.setattr(app_module, "ACCESS_PIN", "1234")
+    client = TestClient(app_module.create_app())
+
+    locked = client.get("/questions")
+    assert locked.status_code == 401
+    assert locked.json()["detail"]["code"] == "PIN_REQUIRED"
+
+    unlock = client.post("/auth", json={"pin": "1234"})
+    assert unlock.status_code == 204
+    allowed = client.get("/questions")
+    assert allowed.status_code == 200
+
+    monkeypatch.setattr(app_module, "ACCESS_PIN", "3060")
+    denied_after_rotation = client.get("/questions")
+    assert denied_after_rotation.status_code == 401
+    assert denied_after_rotation.json()["detail"]["code"] == "PIN_REQUIRED"
+
+
 def test_email_status_endpoint_exposes_smtp_flags(monkeypatch) -> None:
     monkeypatch.setattr(app_module, "TEACHER_EMAIL", "teacher@example.com")
     monkeypatch.setattr(app_module, "EMAIL_DELIVERY_METHOD", "auto")
