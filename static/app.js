@@ -23,7 +23,7 @@ const BARGE_IN_RISE_DB = 9;
 const BARGE_IN_HOLD_MS = 280;
 const BARGE_IN_IGNORE_MS = 900;
 const BARGE_IN_NOISE_MAX_RISE_DB = 2.5;
-const MEDIA_PERMISSION_TIMEOUT_MS = 12000;
+const MEDIA_PERMISSION_TIMEOUT_MS = 25000;
 const PREFERRED_VOICE_NAME = "Google US English";
 const PREFERRED_VOICE_LANG = "en-us";
 const FORCE_SERVER_VOICE = true;
@@ -1571,12 +1571,19 @@ async function ensureMediaReady() {
     await setupMediaStream();
     return Boolean(mediaStream);
   } catch (error) {
-    state.mediaSupported = false;
+    const errorName = String(error?.name || "");
     const timedOut = String(error?.message || "").includes("MIC_PERMISSION_TIMEOUT");
+    const denied = errorName === "NotAllowedError" || errorName === "PermissionDeniedError";
     const iframeNote = isInIframe() ? " Open this app in a new tab from PoliformaT and allow microphone access there." : "";
-    ui.recordingState.textContent = timedOut
-      ? `Microphone permission timed out.${iframeNote}`
-      : `Microphone permission or support is unavailable.${iframeNote}`;
+    if (timedOut) {
+      ui.recordingState.textContent = `Microphone permission timed out.${iframeNote}`;
+    } else if (denied) {
+      ui.recordingState.textContent = `Microphone permission was denied.${iframeNote}`;
+    } else {
+      ui.recordingState.textContent = `Microphone is unavailable right now. Please try again.${iframeNote}`;
+    }
+    // Keep media mode available for retries; a single failed request should not permanently disable Begin Interview.
+    detectInputMode();
     return false;
   }
 }

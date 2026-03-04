@@ -11,6 +11,7 @@ All notable changes to this project are documented here.
 - Resend client now sends `User-Agent` and `Accept` headers to satisfy API requirements and prevent `403 error code: 1010`.
 - Interviewer prompt now enforces specific content-level meta-feedback (not bare acknowledgments) and probe stems aligned with client probe detection.
 - Begin Interview now applies a microphone permission timeout, preventing infinite "Preparing microphone..." hangs on managed Chrome/iframe setups.
+- Begin Interview microphone failures are now recoverable in-session (no permanent media-disable after one timeout/denial), with clearer error text for retry.
 
 ### Added
 - `GET /email/status` now includes `smtp_port` for clearer SMTP diagnostics.

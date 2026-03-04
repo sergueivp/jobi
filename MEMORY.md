@@ -136,3 +136,9 @@ This file is **for the assistant’s use**. It captures validated solutions and 
 **Decision:** Add a hard timeout for microphone permission and show explicit guidance to open in a new tab when inside LMS iframe.
 **Evidence:** Converts silent start hangs into actionable user feedback.
 **Reuse rule:** Any permission-gated async browser API should have a timeout and clear fallback instructions.
+
+### 2026-03-04 — Do not permanently disable media after one failure
+**Context:** A timeout/deny on first mic request could lock the session into non-media mode until reload.
+**Decision:** Keep media mode retryable and surface specific failure reason (timeout/denied/unavailable) instead of flipping `mediaSupported=false`.
+**Evidence:** Users can grant permission and retry Begin Interview in the same page session.
+**Reuse rule:** Treat permission errors as recoverable unless the browser truly lacks the API.
