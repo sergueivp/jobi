@@ -49,19 +49,34 @@ def load_env_file(path: Path) -> None:
 # Load local .env before reading env-based constants.
 load_env_file(BASE_DIR / ".env")
 
+
+def env_int(name: str, default: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    value = raw_value.strip()
+    if not value:
+        logger.warning("Environment variable %s is blank. Falling back to %s.", name, default)
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        logger.warning("Environment variable %s=%r is invalid. Falling back to %s.", name, value, default)
+        return default
+
 MAX_HISTORY_TURNS = 60
 MAX_AUDIO_BYTES = 10 * 1024 * 1024
 DEFAULT_CHAT_MODEL = os.getenv("MODEL_CHAT", "gpt-4o")
 DEFAULT_EVAL_MODEL = os.getenv("MODEL_EVAL", "gpt-4o")
 DEFAULT_WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-1")
 ACCESS_PIN = os.getenv("ACCESS_PIN", "").strip()
-ACCESS_PIN_TTL_HOURS = int(os.getenv("ACCESS_PIN_TTL_HOURS", "168"))
+ACCESS_PIN_TTL_HOURS = env_int("ACCESS_PIN_TTL_HOURS", 168)
 PIN_COOKIE_NAME = "nt_pin"
 TTS_MODEL = os.getenv("TTS_MODEL", "gpt-4o-mini-tts")
 TTS_VOICE = os.getenv("TTS_VOICE", "alloy")
 MAX_ATTEMPTS = 3
 ATTEMPTS_COOKIE_NAME = "tt_attempts"
-ATTEMPTS_COOKIE_TTL_HOURS = int(os.getenv("ATTEMPTS_COOKIE_TTL_HOURS", "720"))
+ATTEMPTS_COOKIE_TTL_HOURS = env_int("ATTEMPTS_COOKIE_TTL_HOURS", 720)
 BROWSER_LOCK_COOKIE_NAME = "tt_final_lock"
 LOCK_BROWSER_AFTER_FINAL = os.getenv("LOCK_BROWSER_AFTER_FINAL", "true").strip().lower() in {
     "1",
@@ -72,7 +87,7 @@ LOCK_BROWSER_AFTER_FINAL = os.getenv("LOCK_BROWSER_AFTER_FINAL", "true").strip()
 ATTEMPT_STORE_PATH_RAW = os.getenv("ATTEMPT_STORE_PATH", "").strip()
 TEACHER_EMAIL = os.getenv("TEACHER_EMAIL", "").strip()
 SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
-SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
+SMTP_PORT = env_int("SMTP_PORT", 465)
 SMTP_USERNAME = os.getenv("SMTP_USERNAME", "").strip()
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
 SMTP_FROM = os.getenv("SMTP_FROM", "").strip() or SMTP_USERNAME
